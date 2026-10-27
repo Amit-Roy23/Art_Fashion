@@ -1,216 +1,204 @@
-import * as React from "react";
-import { Metadata } from "next";
-import { connectDB } from "@/lib/db";
-import { Order } from "@/models/Order";
-import { OrderItem } from "@/models/OrderItem";
-import { Artisan } from "@/models/Artisan";
-import { Assignment } from "@/models/Assignment";
-import { ProgressUpdate } from "@/models/ProgressUpdate";
-import { JobWork } from "@/models/JobWork";
-import { Delivery } from "@/models/Delivery";
-import { Settings } from "@/models/Settings";
+"use client";
+import { useMemo, useState } from "react";
+import { AlertTriangle, Download, Lock } from "lucide-react";
+import { useCan, useDB } from "@/lib/store";
 import {
-  ReportsClient,
-  OrderReportRow,
-  ArtisanReportRow,
-  JobWorkReportRow,
-  DeliveryReportRow,
-  WeightVarianceRow,
-} from "@/components/reports/ReportsClient";
-import { isOverTolerance } from "@/lib/weight";
+  artisanLoad,
+  customerOf,
+  orderOf,
+  orderProgress,
+  orderStatus,
+  pieceOf,
+  piecesOf,
+  stageOf,
+  vendorOf,
+  weightJourney,
+  jobStatus,
+  overTolerance,
+} from "@/lib/queries";
+import { date, g } from "@/lib/format";
+import { Button, Empty, PageHeader, Panel, Segmented } from "@/components/ui";
 
-export const metadata: Metadata = {
-  title: "Reports & Registers | BMS",
-  description: "Export order registers, artisan loss summaries, and weight audits",
-};
+type R = "orders" | "karigars" | "variance" | "jobwork" | "deliveries" | "pieces";
 
-export default async function ReportsPage() {
-  await connectDB();
+export default function ReportsPage() {
+  const db = useDB();
+  const allowed = useCan("reports.view");
+  const [r, setR] = useState<R>("orders");
 
-  const [
-    ordersRaw,
-    artisansRaw,
-    assignmentsRaw,
-    jobWorksRaw,
-    deliveriesRaw,
-    progressUpdatesRaw,
-    settings,
-  ] = await Promise.all([
-    Order.find({ isDeleted: false })
-      .populate("customerId", "name phone")
-      .sort({ orderDate: -1 })
-      .lean(),
-    Artisan.find({ isDeleted: false }).sort({ name: 1 }).lean(),
-    Assignment.find({ isDeleted: false }).lean(),
-    JobWork.find({ isDeleted: false })
-      .populate("vendorId", "name phone")
-      .sort({ dispatchDate: -1 })
-      .lean(),
-    Delivery.find({ isDeleted: false })
-      .populate("customerId", "name phone")
-      .populate("orderId", "orderNo")
-      .sort({ deliveryDate: -1 })
-      .lean(),
-    ProgressUpdate.find({ verificationStatus: "APPROVED" })
-      .populate("orderItemId", "pieceNo orderId")
-      .populate("artisanId", "name")
-      .populate("stageId", "name")
-      .lean(),
-    Settings.getSettings(),
-  ]);
+  const table = useMemo((): { head: string[]; rows: (string | number)[][]; flag?: boolean[] } => {
+    if (r === "orders")
+      return {
+        head: ["Order", "Type", "Title", "Customer", "Received", "Due", "Pieces", "Est. weight", "Progress", "Status"],
+        rows: db.orders.map((o) => [
+          o.number,
+          o.type,
+          o.title,
+          customerOf(db, o.customerId)?.name ?? "",
+          date(o.orderDate),
+          date(o.dueDate),
+          piecesOf(db, o.id).length,
+          g(piecesOf(db, o.id).reduce((s, p) => s + p.estWeightMg, 0)),
+          `${Math.round(orderProgress(db, o) * 100)}%`,
+          orderStatus(db, o)?.label ?? "",
+        ]),
+      };
+    if (r === "pieces")
+      return {
+        head: ["Piece", "Name", "Order", "Stage", "Location", "Received", "Est.", "Current", "Final", "Delivered"],
+        rows: db.pieces.map((p) => [
+          p.code,
+          p.name,
+          orderOf(db, p.orderId)?.number ?? "",
+          stageOf(db, p.stageId)?.name ?? "",
+          p.location,
+          date(p.receivedAt),
+          g(p.estWeightMg),
+          g(p.currentWeightMg),
+          g(p.finalWeightMg),
+          date(p.deliveredAt),
+        ]),
+      };
+    if (r === "karigars")
+      return {
+        head: ["Karigar", "Speciality", "Open", "To review", "Overdue", "Completed", "Metal in hand", "Net diff (done)", "Avg %"],
+        rows: db.artisans.map((a) => {
+          const l = artisanLoad(db, a.id);
+          const iss = l.done.reduce((s, w) => s + w.issuedWeightMg, 0);
+          return [
+            a.name,
+            a.speciality,
+            l.open.length,
+            l.submitted.length,
+            l.overdue.length,
+            l.done.length,
+            g(l.metalOutMg),
+            g(l.lossMg),
+            iss ? `${((l.lossMg / iss) * 100).toFixed(2)}%` : "—",
+          ];
+        }),
+      };
+    if (r === "variance") {
+      const rows: (string | number)[][] = [];
+      const flag: boolean[] = [];
+      db.pieces.forEach((p) =>
+        weightJourney(db, p)
+          .filter((x) => x.baseMg && x.kind !== "final")
+          .forEach((x) => {
+            rows.push([
+              p.code,
+              p.name,
+              x.label,
+              x.sub,
+              date(x.at),
+              g(x.baseMg),
+              g(x.mg),
+              g(x.mg - x.baseMg!),
+              `${(((x.mg - x.baseMg!) / x.baseMg!) * 100).toFixed(2)}%`,
+            ]);
+            flag.push(overTolerance(db, x.baseMg, x.mg));
+          }),
+      );
+      return { head: ["Piece", "Name", "Event", "Ref", "Date", "Out", "In", "Diff", "%"], rows, flag };
+    }
+    if (r === "jobwork")
+      return {
+        head: ["Challan", "Piece", "Vendor", "Process", "Sent", "Expected", "Returned", "Sent wt", "Return wt", "Charges", "Status"],
+        rows: db.jobWorks.map((j) => [
+          j.number,
+          pieceOf(db, j.pieceId)?.code ?? "",
+          vendorOf(db, j.vendorId)?.name ?? "",
+          j.process,
+          date(j.dispatchDate),
+          date(j.expectedDate),
+          date(j.returnedAt),
+          g(j.sentWeightMg),
+          g(j.returnedWeightMg),
+          j.charges ?? "",
+          jobStatus(db, j)?.label ?? "",
+        ]),
+      };
+    return {
+      head: ["Note", "Customer", "Order", "Date", "Pieces", "Weight", "Mode", "Received by"],
+      rows: db.deliveries.map((d) => [
+        d.number,
+        customerOf(db, d.customerId)?.name ?? "",
+        orderOf(db, d.orderId)?.number ?? "",
+        date(d.date),
+        d.items.length,
+        g(d.items.reduce((s, i) => s + i.weightMg, 0)),
+        d.mode,
+        d.receivedBy,
+      ]),
+    };
+  }, [db, r]);
 
-  const tolerance = settings.weightTolerancePercent || 0.5;
+  const csv = () => {
+    const esc = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`;
+    const body = [table.head, ...table.rows].map((row) => row.map(esc).join(",")).join("\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([body], { type: "text/csv" }));
+    a.download = `${r}-report.csv`;
+    a.click();
+  };
 
-  // 1. Order Register
-  const orders: OrderReportRow[] = ordersRaw.map((o: any) => ({
-    orderNo: o.orderNo,
-    orderDate: o.orderDate ? new Date(o.orderDate).toISOString() : "",
-    type: o.type,
-    customerName: o.customerId?.name || "Unknown",
-    customerPhone: o.customerId?.phone || "",
-    projectName: o.projectName,
-    itemCount: o.itemCount || 0,
-    deliveredCount: o.deliveredCount || 0,
-    totalEstimatedWeightMg: o.totalEstimatedWeightMg || 0,
-    systemStatus: o.systemStatus || "PENDING",
-    priority: o.priority || "NORMAL",
-  }));
-
-  // 2. Artisan Report
-  const artisans: ArtisanReportRow[] = artisansRaw.map((art: any) => {
-    const artId = art._id.toString();
-    const artAssignments = assignmentsRaw.filter(
-      (a: any) => a.artisanId?.toString() === artId
+  if (!allowed)
+    return (
+      <Panel>
+        <Empty icon={<Lock className="size-7" />} title="Reports are restricted" sub="Ask the owner to enable reports for your role." />
+      </Panel>
     );
-
-    let activePieces = 0;
-    let completedPieces = 0;
-    let totalIssuedMg = 0;
-    let totalSubmittedMg = 0;
-    let overduePieces = 0;
-
-    artAssignments.forEach((assign: any) => {
-      const isDue = assign.dueDate && new Date(assign.dueDate).getTime() < Date.now();
-      const isClosed = !!assign.closedAt;
-
-      (assign.items || []).forEach((item: any) => {
-        totalIssuedMg += item.issuedWeightMg || 0;
-        if (isClosed) {
-          completedPieces++;
-        } else {
-          activePieces++;
-          if (isDue) overduePieces++;
-        }
-      });
-    });
-
-    const artProgress = progressUpdatesRaw.filter(
-      (p: any) => p.artisanId?._id?.toString() === artId || p.artisanId?.toString() === artId
-    );
-    artProgress.forEach((p: any) => {
-      totalSubmittedMg += p.submittedWeightMg || 0;
-    });
-
-    return {
-      artisanCode: art.code || "",
-      artisanName: art.name,
-      phone: art.phone,
-      activePieces,
-      completedPieces,
-      overduePieces,
-      totalIssuedWeightMg: totalIssuedMg,
-      totalSubmittedWeightMg: totalSubmittedMg,
-      totalVarianceMg: Math.abs(totalIssuedMg - totalSubmittedMg),
-    };
-  });
-
-  // 3. Job Work Register
-  const jobWorks: JobWorkReportRow[] = jobWorksRaw.map((j: any) => {
-    let sentMg = 0;
-    let retMg = 0;
-    let lossMg = 0;
-
-    (j.items || []).forEach((it: any) => {
-      sentMg += it.sentWeightMg || 0;
-      if (it.status === "RETURNED") {
-        retMg += it.returnedWeightMg || 0;
-        lossMg += it.lossMg || 0;
-      }
-    });
-
-    const lossPct = sentMg > 0 ? ((lossMg / sentMg) * 100).toFixed(2) : "0.00";
-
-    return {
-      challanNo: j.challanNo,
-      dispatchDate: j.dispatchDate ? new Date(j.dispatchDate).toISOString() : "",
-      vendorName: j.vendorId?.name || "Unknown",
-      processType: j.processType,
-      piecesCount: j.items?.length || 0,
-      totalSentWeightMg: sentMg,
-      totalReturnedWeightMg: retMg,
-      totalLossMg: lossMg,
-      lossPercent: lossPct,
-      status: j.returnDate ? "RETURNED" : "IN_PROCESS",
-    };
-  });
-
-  // 4. Delivery Register
-  const deliveries: DeliveryReportRow[] = deliveriesRaw.map((d: any) => {
-    let totalDeliveredMg = 0;
-    (d.items || []).forEach((it: any) => {
-      totalDeliveredMg += it.finalWeightMg || 0;
-    });
-
-    return {
-      deliveryNo: d.deliveryNo,
-      deliveryDate: d.deliveryDate ? new Date(d.deliveryDate).toISOString() : "",
-      customerName: d.customerId?.name || "Unknown",
-      orderNo: d.orderId?.orderNo || "Unknown",
-      piecesCount: d.items?.length || 0,
-      totalDeliveredWeightMg: totalDeliveredMg,
-      receivedBy: d.receivedBy,
-      mode: d.mode || "IN_PERSON",
-    };
-  });
-
-  // 5. Weight Variance Audits (items exceeding tolerance)
-  const variances: WeightVarianceRow[] = [];
-
-  // Check JobWorks with returned pieces exceeding tolerance
-  jobWorksRaw.forEach((jw: any) => {
-    (jw.items || []).forEach((it: any) => {
-      if (it.status === "RETURNED" && it.sentWeightMg > 0) {
-        if (isOverTolerance(it.sentWeightMg, it.returnedWeightMg, tolerance)) {
-          const varMg = it.sentWeightMg - it.returnedWeightMg;
-          const varPct = ((Math.abs(varMg) / it.sentWeightMg) * 100).toFixed(2);
-          variances.push({
-            pieceNo: it.orderItemId?.pieceNo || "Piece",
-            orderNo: jw.challanNo,
-            stageName: jw.processType,
-            partyName: jw.vendorId?.name || "Vendor",
-            partyType: "JOBWORK",
-            recordedAt: jw.returnDate ? new Date(jw.returnDate).toISOString() : "",
-            initialWeightMg: it.sentWeightMg,
-            finalWeightMg: it.returnedWeightMg,
-            varianceMg: varMg,
-            variancePercent: varPct,
-            tolerancePercent: tolerance,
-          });
-        }
-      }
-    });
-  });
-
   return (
-    <div className="space-y-6">
-      <ReportsClient
-        orders={orders}
-        artisans={artisans}
-        jobWorks={jobWorks}
-        deliveries={deliveries}
-        variances={variances}
-        weightTolerancePercent={tolerance}
+    <div>
+      <PageHeader
+        kicker="Registers"
+        title="Reports"
+        sub="Operational registers for follow-ups and audits. Export any of them to Excel (CSV)."
+        actions={
+          <Button variant="gold" icon={<Download className="size-4" />} onClick={csv}>
+            Export CSV
+          </Button>
+        }
       />
+      <Segmented
+        className="mb-5"
+        value={r}
+        onChange={setR}
+        options={[
+          { value: "orders", label: "Orders" },
+          { value: "pieces", label: "Pieces" },
+          { value: "karigars", label: "Karigar performance" },
+          { value: "variance", label: "Weight variance" },
+          { value: "jobwork", label: "Job work" },
+          { value: "deliveries", label: "Deliveries" },
+        ]}
+      />
+      <Panel className="overflow-x-auto">
+        <table className="w-full min-w-[900px] text-sm">
+          <thead>
+            <tr className="border-b border-line text-left text-[10px] font-bold uppercase tracking-widest text-faint">
+              {table.head.map((h) => (
+                <th key={h} className="p-3.5">
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {table.rows.map((row, i) => (
+              <tr key={i} className={table.flag?.[i] ? "border-b border-line bg-danger/5" : "border-b border-line last:border-0 hover:bg-panel"}>
+                {row.map((c, j) => (
+                  <td key={j} className="tabular p-3.5">
+                    {j === 0 && table.flag?.[i] && <AlertTriangle className="mr-1 inline size-3.5 text-danger" />}
+                    {c}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Panel>
+      {r === "variance" && <p className="mt-3 text-xs text-faint">Rows in red exceed the {db.settings.weightTolerancePct}% tolerance set in Settings.</p>}
     </div>
   );
 }

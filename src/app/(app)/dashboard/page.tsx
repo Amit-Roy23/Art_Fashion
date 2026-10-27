@@ -1,597 +1,429 @@
-import * as React from "react";
+"use client";
+import { useMemo, useState } from "react";
 import Link from "next/link";
-import { connectDB } from "@/lib/db";
-import { Order } from "@/models/Order";
-import { OrderItem } from "@/models/OrderItem";
-import { Artisan } from "@/models/Artisan";
-import { ProductionStage } from "@/models/ProductionStage";
-import { ProgressUpdate } from "@/models/ProgressUpdate";
-import { JobWork } from "@/models/JobWork";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { StatusBadge } from "@/components/status-badge/StatusBadge";
-import { DashboardCharts } from "@/components/dashboard/DashboardCharts";
-import { PendingSubmissionsCard } from "@/components/dashboard/PendingSubmissionsCard";
-import { formatISTDate } from "@/lib/utils";
-import { formatWeight } from "@/lib/weight";
+import { Bar as RBar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import {
-  ShoppingBag,
-  Clock,
-  Wrench,
-  Flame,
-  CheckCircle2,
-  Truck,
   AlertTriangle,
-  ArrowUpRight,
-  User,
-  Calendar,
+  ArrowRight,
+  BadgeCheck,
+  CheckCircle2,
+  ClipboardList,
+  Clock,
+  Hammer,
+  Hourglass,
+  PackageCheck,
+  Plus,
+  Sparkles,
+  Truck,
+  Factory,
 } from "lucide-react";
+import { startOfWeek, subWeeks, format } from "date-fns";
+import { useDB, useUser } from "@/lib/store";
+import { useChartColors } from "@/lib/theme";
+import { artisanLoad, coverPhoto, customerOf, orderCat, orderOf, pieceOf, piecesOf, stageOf, vendorOf, workCategory } from "@/lib/queries";
+import { cn, dateShort, daysLeft, g, gShort } from "@/lib/format";
+import { Avatar, Button, Panel, Ring, SectionTitle, Tone } from "@/components/ui";
+import { DueChip, OrderStatusPill, PriorityBadge, Timeline, WeightDelta } from "@/components/domain";
+import { Thumb, useLightbox } from "@/components/photos";
+import { DeliveryDialog, IssueWorkDialog, ReviewDialog, SendJobDialog } from "@/components/actions";
 
+export default function Dashboard() {
+  const db = useDB();
+  const user = useUser()!;
+  const open = useLightbox();
+  const chart = useChartColors();
+  const [dlg, setDlg] = useState<null | "assign" | "job" | "deliver" | { review: string }>(null);
 
-export default async function DashboardPage() {
-  await connectDB();
-  const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  const next7Days = new Date(now.getTime() + 7 * 86400000);
+  const k = useMemo(() => {
+    const cats = db.orders.map((o) => orderCat(db, o));
+    return {
+      total: db.orders.length,
+      pending: cats.filter((c) => c === "NEW" || c === "HOLD").length,
+      production: cats.filter((c) => c === "ACTIVE").length,
+      ready: cats.filter((c) => c === "READY" || c === "PARTIAL").length,
+      done: cats.filter((c) => c === "DONE").length,
+    };
+  }, [db]);
 
-  // 1. KPI Counts
-  const [
-    totalOrders,
-    pendingOrders,
-    inProdOrders,
-    atJobWorkOrders,
-    readyOrders,
-    deliveredThisMonth,
-    overduePiecesCount,
-  ] = await Promise.all([
-    Order.countDocuments({ isDeleted: false }),
-    Order.countDocuments({ systemStatus: "PENDING", isDeleted: false }),
-    Order.countDocuments({ systemStatus: "IN_PRODUCTION", isDeleted: false }),
-    Order.countDocuments({ systemStatus: "AT_JOB_WORK", isDeleted: false }),
-    Order.countDocuments({ systemStatus: "READY", isDeleted: false }),
-    Order.countDocuments({
-      systemStatus: "DELIVERED",
-      updatedAt: { $gte: startOfMonth },
-      isDeleted: false,
-    }),
-    OrderItem.countDocuments({
-      currentLocation: { $ne: "DELIVERED" },
-      dueDate: { $lt: now },
-      isDeleted: false,
-    }),
-  ]);
-
-  // 2. Overdue Pieces List
-  const overduePieces = await OrderItem.find({
-    currentLocation: { $ne: "DELIVERED" },
-    dueDate: { $lt: now },
-    isDeleted: false,
-  })
-    .populate("currentArtisanId")
-    .populate("currentStageId")
-    .sort({ dueDate: 1 })
-    .limit(5)
-    .lean();
-
-  // 3. Pieces Due in Next 7 Days
-  const dueSoonPieces = await OrderItem.find({
-    currentLocation: { $ne: "DELIVERED" },
-    dueDate: { $gte: now, $lte: next7Days },
-    isDeleted: false,
-  })
-    .populate("currentArtisanId")
-    .populate("currentStageId")
-    .sort({ dueDate: 1 })
-    .limit(5)
-    .lean();
-
-  // 4. Pending Karigar Submissions
-  const pendingSubmissions = await ProgressUpdate.find({
-    verificationStatus: "PENDING",
-    isDeleted: false,
-  })
-    .populate("orderItemId")
-    .populate("artisanId")
-    .populate("stageId")
-    .sort({ submittedAt: -1 })
-    .lean();
-
-  // 5. Items at Job Work beyond expected return
-  const overdueJobWorks = await JobWork.find({
-    "items.status": "SENT",
-    expectedReturnDate: { $lt: now },
-    isDeleted: false,
-  })
-    .populate("vendorId")
-    .populate("items.orderItemId")
-    .lean();
-
-  // 6. Ready but Not Delivered Pieces
-  const readyNotDelivered = await OrderItem.find({
-    currentLocation: "READY",
-    isDeleted: false,
-  })
-    .populate("customerId")
-    .populate("orderId")
-    .sort({ updatedAt: -1 })
-    .limit(5)
-    .lean();
-
-  // 7. Artisans Workload Table
-  const artisans = await Artisan.find({ isActive: true, isDeleted: false }).lean();
-  const artisanWorkloads = await Promise.all(
-    artisans.map(async (art) => {
-      const activePieces = await OrderItem.find({
-        currentArtisanId: art._id,
-        currentLocation: "WITH_KARIGAR",
-        isDeleted: false,
-      }).lean();
-
-      const overdue = activePieces.filter(
-        (p) => p.dueDate && new Date(p.dueDate) < now
-      ).length;
-
-      const pendingSubs = await ProgressUpdate.countDocuments({
-        artisanId: art._id,
-        verificationStatus: "PENDING",
-        isDeleted: false,
-      });
-
-      return {
-        id: art._id.toString(),
-        code: art.code,
-        name: art.name,
-        phone: art.phone,
-        inHandCount: activePieces.length,
-        overdueCount: overdue,
-        pendingReviewCount: pendingSubs,
-      };
-    })
+  const submissions = db.workOrders.filter((w) => workCategory(db, w.statusId) === "SUBMITTED");
+  const overdueWO = db.workOrders.filter((w) => !["SUBMITTED", "DONE"].includes(workCategory(db, w.statusId)) && daysLeft(w.dueDate) < 0);
+  const openJobs = db.jobWorks.filter((j) => !j.returnedAt);
+  const readyPieces = db.pieces.filter((p) => p.location === "READY");
+  const dueSoon = db.orders
+    .filter((o) => !["DONE", "CANCELLED"].includes(orderCat(db, o)) && daysLeft(o.dueDate) <= 5)
+    .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  const photos = useMemo(
+    () =>
+      db.pieces
+        .flatMap((p) => p.photos)
+        .filter((p) => p.kind !== "design" && p.kind !== "reference")
+        .sort((a, b) => b.at.localeCompare(a.at))
+        .slice(0, 9),
+    [db],
   );
 
-  // 8. Stages & Charts Data
-  const allStages = await ProductionStage.find({ isActive: true, isDeleted: false })
-    .sort({ sortOrder: 1 })
-    .lean();
-
-  const stageDistribution = await Promise.all(
-    allStages.map(async (st) => {
-      const count = await OrderItem.countDocuments({
-        currentStageId: st._id,
-        currentLocation: { $ne: "DELIVERED" },
-        isDeleted: false,
-      });
+  const weekly = useMemo(() => {
+    const weeks = Array.from({ length: 8 }, (_, i) => startOfWeek(subWeeks(new Date(), 7 - i), { weekStartsOn: 1 }));
+    return weeks.map((w, i) => {
+      const end = weeks[i + 1] ?? new Date(8.64e15);
+      const inW = (iso: string) => new Date(iso) >= w && new Date(iso) < end;
       return {
-        stageName: st.name,
-        count,
-        colour: st.colour,
+        week: format(w, "dd MMM"),
+        Received: db.pieces.filter((p) => inW(p.receivedAt)).length,
+        Delivered: db.deliveries.filter((d) => inW(d.date)).reduce((s, d) => s + d.items.length, 0),
       };
-    })
-  );
+    });
+  }, [db]);
 
-  // Monthly Trend sample (6 months)
-  const monthlyTrend = [
-    { month: "May", received: 8, delivered: 6 },
-    { month: "Jun", received: 11, delivered: 9 },
-    { month: "Jul", received: 14, delivered: 12 },
-    { month: "Aug", received: 18, delivered: 15 },
-    { month: "Sep", received: 15, delivered: 16 },
-    { month: "Oct", received: totalOrders, delivered: deliveredThisMonth },
-  ];
-
-  const formattedSubmissions = pendingSubmissions.map((s: any) => ({
-    id: s._id.toString(),
-    pieceNo: s.orderItemId?.pieceNo || "Piece",
-    category: s.orderItemId?.category || "Jewellery",
-    artisanName: s.artisanId?.name || "Artisan",
-    stageName: s.stageId?.name || "Stage",
-    submittedWeightMg: s.submittedWeightMg,
-    submittedAt: s.submittedAt,
-    remarks: s.remarks,
-    photos: s.photos || [],
-  }));
-
-  const stageOptions = allStages.map((s) => ({
-    id: s._id.toString(),
-    name: s.name,
-  }));
+  const hour = new Date().getHours();
+  const greet = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+  const metalOut = db.artisans.reduce((s, a) => s + artisanLoad(db, a.id).metalOutMg, 0) + openJobs.reduce((s, j) => s + j.sentWeightMg, 0);
 
   return (
     <div className="space-y-6">
-      {/* Top Banner / Title */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-neutral-200/80 pb-4 dark:border-neutral-800">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight text-neutral-900 dark:text-neutral-100 flex items-center gap-2">
-            Jewellery Production Dashboard
-            <span className="text-xs bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-200 px-2 py-0.5 rounded-full font-medium">
-              Live Workshop
-            </span>
-          </h1>
-          <p className="text-xs text-neutral-500">
-            Real-time tracking of customer orders, artisan work orders, and outside job work.
-          </p>
+      {/* hero */}
+      <Panel lux className="rise overflow-hidden p-6 md:p-8">
+        <div className="facet-bg pointer-events-none absolute inset-0 opacity-40 [mask-image:linear-gradient(90deg,transparent,black)]" />
+        <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <div className="text-[11px] font-bold uppercase tracking-[.26em] text-gold">{format(new Date(), "EEEE, dd MMMM yyyy")}</div>
+            <h1 className="font-display mt-2 text-4xl leading-tight font-semibold md:text-5xl">
+              {greet}, <span className="gold-text italic">{user.name.split(" ")[0]}</span>
+            </h1>
+            <p className="mt-2 max-w-2xl text-sm text-muted">
+              <b className="text-text">{submissions.length}</b> submissions await review, <b className="text-text">{overdueWO.length}</b> karigar jobs are
+              overdue, <b className="text-text">{openJobs.length}</b> pieces are out for job work and <b className="text-text">{readyPieces.length}</b> are
+              ready to deliver.
+              <span className="mt-1 block">
+                Metal out of the vault right now: <b className="gold-text tabular">{g(metalOut)}</b>
+              </span>
+            </p>
+          </div>
+          <div className="grid shrink-0 grid-cols-2 gap-2 lg:w-[360px]">
+            <Button variant="gold" href="/orders/new" icon={<Plus className="size-4" />}>
+              New order
+            </Button>
+            <Button variant="soft" icon={<Hammer className="size-4" />} onClick={() => setDlg("assign")}>
+              Assign karigar
+            </Button>
+            <Button variant="soft" icon={<Sparkles className="size-4" />} onClick={() => setDlg("job")}>
+              Send job work
+            </Button>
+            <Button variant="soft" icon={<Truck className="size-4" />} onClick={() => setDlg("deliver")}>
+              Deliver
+            </Button>
+          </div>
         </div>
+      </Panel>
 
-        <div className="flex items-center gap-2">
-          <Link href="/orders/new">
-            <button className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold shadow-xs cursor-pointer">
-              + New Order
-            </button>
+      {/* KPIs */}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+        {[
+          { label: "Total orders", v: k.total, icon: ClipboardList, href: "/orders", tone: "var(--gold)" },
+          { label: "Pending start", v: k.pending, icon: Hourglass, href: "/orders?f=pending", tone: "#c084fc" },
+          { label: "In production", v: k.production, icon: Factory, href: "/orders?f=production", tone: "var(--warn)" },
+          { label: "Ready to deliver", v: k.ready, icon: PackageCheck, href: "/orders?f=ready", tone: "var(--info)" },
+          { label: "Completed", v: k.done, icon: CheckCircle2, href: "/orders?f=done", tone: "var(--ok)" },
+        ].map((t, i) => (
+          <Link
+            key={t.label}
+            href={t.href}
+            className={cn("panel rise group p-4 transition hover:-translate-y-0.5 hover:border-gold/40", i === 4 && "col-span-2 md:col-span-1")}
+            style={{ animationDelay: `${i * 0.05}s` }}
+          >
+            <div className="flex items-center justify-between">
+              <span
+                className="grid size-9 place-items-center rounded-xl"
+                style={{ color: t.tone, background: `color-mix(in oklab, ${t.tone} 14%, transparent)` }}
+              >
+                <t.icon className="size-[18px]" />
+              </span>
+              <ArrowRight className="size-4 text-faint transition group-hover:translate-x-0.5 group-hover:text-gold" />
+            </div>
+            <div className="font-display tabular mt-3 text-4xl font-semibold">{t.v}</div>
+            <div className="text-xs font-medium text-muted">{t.label}</div>
           </Link>
-        </div>
+        ))}
       </div>
 
-      {/* 1. KPI Cards Grid (Clickable to Filtered Views) */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-7 gap-3">
-        {/* Total Orders */}
-        <Link href="/orders" className="group">
-          <Card className="hover:border-neutral-400 transition-all shadow-2xs">
-            <CardContent className="p-3.5 space-y-1">
-              <div className="flex items-center justify-between text-neutral-500">
-                <span className="text-[11px] font-medium">Total Orders</span>
-                <ShoppingBag className="h-3.5 w-3.5 text-neutral-400 group-hover:text-amber-600 transition-colors" />
-              </div>
-              <p className="text-xl font-bold text-neutral-900 dark:text-neutral-100">
-                {totalOrders}
-              </p>
-              <span className="text-[10px] text-neutral-400 flex items-center gap-0.5">
-                View all <ArrowUpRight className="h-2.5 w-2.5" />
-              </span>
-            </CardContent>
-          </Card>
-        </Link>
-
-        {/* Pending */}
-        <Link href="/orders?status=PENDING" className="group">
-          <Card className="hover:border-amber-400 transition-all shadow-2xs">
-            <CardContent className="p-3.5 space-y-1">
-              <div className="flex items-center justify-between text-amber-700 dark:text-amber-400">
-                <span className="text-[11px] font-medium">Pending</span>
-                <Clock className="h-3.5 w-3.5" />
-              </div>
-              <p className="text-xl font-bold text-amber-700 dark:text-amber-400">
-                {pendingOrders}
-              </p>
-              <span className="text-[10px] text-neutral-400 flex items-center gap-0.5">
-                Unassigned <ArrowUpRight className="h-2.5 w-2.5" />
-              </span>
-            </CardContent>
-          </Card>
-        </Link>
-
-        {/* In Production */}
-        <Link href="/orders?status=IN_PRODUCTION" className="group">
-          <Card className="hover:border-blue-400 transition-all shadow-2xs">
-            <CardContent className="p-3.5 space-y-1">
-              <div className="flex items-center justify-between text-blue-700 dark:text-blue-400">
-                <span className="text-[11px] font-medium">In Production</span>
-                <Wrench className="h-3.5 w-3.5" />
-              </div>
-              <p className="text-xl font-bold text-blue-700 dark:text-blue-400">
-                {inProdOrders}
-              </p>
-              <span className="text-[10px] text-neutral-400 flex items-center gap-0.5">
-                With Karigars <ArrowUpRight className="h-2.5 w-2.5" />
-              </span>
-            </CardContent>
-          </Card>
-        </Link>
-
-        {/* At Job Work */}
-        <Link href="/job-work" className="group">
-          <Card className="hover:border-purple-400 transition-all shadow-2xs">
-            <CardContent className="p-3.5 space-y-1">
-              <div className="flex items-center justify-between text-purple-700 dark:text-purple-400">
-                <span className="text-[11px] font-medium">At Job Work</span>
-                <Flame className="h-3.5 w-3.5" />
-              </div>
-              <p className="text-xl font-bold text-purple-700 dark:text-purple-400">
-                {atJobWorkOrders}
-              </p>
-              <span className="text-[10px] text-neutral-400 flex items-center gap-0.5">
-                Outside vendor <ArrowUpRight className="h-2.5 w-2.5" />
-              </span>
-            </CardContent>
-          </Card>
-        </Link>
-
-        {/* Ready for Delivery */}
-        <Link href="/orders?status=READY" className="group">
-          <Card className="hover:border-emerald-400 transition-all shadow-2xs">
-            <CardContent className="p-3.5 space-y-1">
-              <div className="flex items-center justify-between text-emerald-700 dark:text-emerald-400">
-                <span className="text-[11px] font-medium">Ready</span>
-                <CheckCircle2 className="h-3.5 w-3.5" />
-              </div>
-              <p className="text-xl font-bold text-emerald-700 dark:text-emerald-400">
-                {readyOrders}
-              </p>
-              <span className="text-[10px] text-neutral-400 flex items-center gap-0.5">
-                Vault / QC passed <ArrowUpRight className="h-2.5 w-2.5" />
-              </span>
-            </CardContent>
-          </Card>
-        </Link>
-
-        {/* Delivered this month */}
-        <Link href="/deliveries" className="group">
-          <Card className="hover:border-cyan-400 transition-all shadow-2xs">
-            <CardContent className="p-3.5 space-y-1">
-              <div className="flex items-center justify-between text-cyan-700 dark:text-cyan-400">
-                <span className="text-[11px] font-medium">Delivered</span>
-                <Truck className="h-3.5 w-3.5" />
-              </div>
-              <p className="text-xl font-bold text-cyan-700 dark:text-cyan-400">
-                {deliveredThisMonth}
-              </p>
-              <span className="text-[10px] text-neutral-400 flex items-center gap-0.5">
-                This month <ArrowUpRight className="h-2.5 w-2.5" />
-              </span>
-            </CardContent>
-          </Card>
-        </Link>
-
-        {/* Overdue */}
-        <Link href="/pieces?overdue=true" className="group">
-          <Card className="hover:border-red-400 bg-red-50/20 dark:bg-red-950/20 transition-all shadow-2xs border-red-200 dark:border-red-900/40">
-            <CardContent className="p-3.5 space-y-1">
-              <div className="flex items-center justify-between text-red-600 dark:text-red-400">
-                <span className="text-[11px] font-medium">Overdue</span>
-                <AlertTriangle className="h-3.5 w-3.5" />
-              </div>
-              <p className="text-xl font-bold text-red-600 dark:text-red-400">
-                {overduePiecesCount}
-              </p>
-              <span className="text-[10px] text-red-500 flex items-center gap-0.5">
-                Action required <ArrowUpRight className="h-2.5 w-2.5" />
-              </span>
-            </CardContent>
-          </Card>
-        </Link>
-      </div>
-
-      {/* 2. Charts Row */}
-      <DashboardCharts
-        stageDistribution={stageDistribution}
-        monthlyTrend={monthlyTrend}
-      />
-
-      {/* 3. Artisan Workload Table */}
-      <Card className="border-neutral-200/80 dark:border-neutral-800">
-        <CardHeader className="flex flex-row items-center justify-between pb-2">
-          <CardTitle className="text-sm font-semibold flex items-center gap-2">
-            <User className="h-4 w-4 text-amber-600" />
-            Artisan (Karigar) Workload & Turnaround
-          </CardTitle>
-          <Link href="/artisans" className="text-xs text-amber-600 hover:underline">
-            Manage Karigars →
-          </Link>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs text-left">
-              <thead className="border-b border-neutral-200 bg-neutral-50/75 dark:border-neutral-800 dark:bg-neutral-900/75 text-neutral-500 uppercase">
-                <tr>
-                  <th className="p-3">Artisan</th>
-                  <th className="p-3">Phone</th>
-                  <th className="p-3 text-center">Pieces in Hand</th>
-                  <th className="p-3 text-center">Overdue</th>
-                  <th className="p-3 text-center">Pending Review</th>
-                  <th className="p-3 text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
-                {artisanWorkloads.map((art) => (
-                  <tr key={art.id} className="hover:bg-neutral-50/50 dark:hover:bg-neutral-800/40">
-                    <td className="p-3 font-semibold text-neutral-800 dark:text-neutral-200">
-                      {art.name}{" "}
-                      <span className="text-[10px] text-neutral-400 font-normal">
-                        ({art.code})
-                      </span>
-                    </td>
-                    <td className="p-3 text-neutral-500 font-mono">{art.phone}</td>
-                    <td className="p-3 text-center font-bold text-amber-700 dark:text-amber-400">
-                      {art.inHandCount}
-                    </td>
-                    <td className="p-3 text-center">
-                      {art.overdueCount > 0 ? (
-                        <span className="rounded-full bg-red-100 text-red-700 px-2 py-0.5 font-bold text-[10px] dark:bg-red-950 dark:text-red-300">
-                          {art.overdueCount} Overdue
-                        </span>
-                      ) : (
-                        <span className="text-neutral-400">0</span>
-                      )}
-                    </td>
-                    <td className="p-3 text-center">
-                      {art.pendingReviewCount > 0 ? (
-                        <span className="rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 font-bold text-[10px] dark:bg-amber-950 dark:text-amber-200">
-                          {art.pendingReviewCount} Needs Review
-                        </span>
-                      ) : (
-                        <span className="text-neutral-400">0</span>
-                      )}
-                    </td>
-                    <td className="p-3 text-right">
-                      <Link
-                        href={`/artisans/${art.id}`}
-                        className="text-amber-600 hover:underline font-medium text-[11px]"
-                      >
-                        View Profile →
-                      </Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* 4. Action Queues: Pending Reviews & Overdue Pieces */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Pending Karigar Submissions Review Queue */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-neutral-500 flex items-center gap-1.5">
-              <CheckCircle2 className="h-3.5 w-3.5 text-amber-600" />
-              Submission Review Queue ({formattedSubmissions.length})
-            </h3>
-            <span className="text-[10px] text-neutral-400">
-              Needs staff verification
-            </span>
-          </div>
-
-          <PendingSubmissionsCard
-            submissions={formattedSubmissions}
-            stages={stageOptions}
-          />
-        </div>
-
-        {/* Urgent & Overdue Pieces */}
-        <div className="space-y-2">
-          <div className="flex items-center justify-between">
-            <h3 className="text-xs font-semibold uppercase tracking-wider text-red-600 flex items-center gap-1.5">
-              <AlertTriangle className="h-3.5 w-3.5" />
-              Overdue Pieces Requiring Attention ({overduePieces.length})
-            </h3>
-            <Link href="/pieces?overdue=true" className="text-[11px] text-red-600 hover:underline">
-              View all overdue →
-            </Link>
-          </div>
-
-          <div className="space-y-2">
-            {overduePieces.length > 0 ? (
-              overduePieces.map((p: any) => (
-                <div
-                  key={p._id.toString()}
-                  className="flex items-center justify-between p-3 rounded-xl border border-red-200 bg-red-50/20 dark:border-red-900/30 dark:bg-red-950/20 shadow-2xs"
-                >
-                  <div className="space-y-0.5">
+      {/* production river */}
+      <Panel className="p-5">
+        <SectionTitle
+          kicker="Live pipeline"
+          title="Production river"
+          action={
+            <Button size="sm" variant="ghost" href="/board">
+              Open board <ArrowRight className="size-3.5" />
+            </Button>
+          }
+        />
+        <div className="no-scrollbar -mx-1 overflow-x-auto px-1 pb-1">
+          <div className="flex min-w-max items-stretch gap-0">
+            {db.settings.stages.map((s, i) => {
+              const ps = db.pieces.filter(
+                (p) =>
+                  p.stageId === s.id &&
+                  p.location !== "DELIVERED" &&
+                  (s.id === db.settings.stages.at(-1)?.id ? p.location === "READY" : p.location !== "READY"),
+              );
+              return (
+                <div key={s.id} className="flex items-center">
+                  <Link href={`/board#${s.id}`} className="group w-[150px] rounded-2xl border border-line bg-panel p-3 transition hover:border-gold/40">
                     <div className="flex items-center gap-2">
-                      <Link
-                        href={`/pieces/${p._id.toString()}`}
-                        className="font-bold text-xs text-neutral-900 dark:text-neutral-100 hover:underline"
-                      >
-                        {p.pieceNo}
-                      </Link>
-                      <span className="rounded bg-neutral-200 px-1.5 py-0.2 text-[10px] font-semibold text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
-                        {p.category}
-                      </span>
-                      <StatusBadge systemCategory={p.systemStatus} />
+                      <span className="size-2.5 rounded-full" style={{ background: s.color, boxShadow: `0 0 12px ${s.color}` }} />
+                      <span className="truncate text-[11px] font-semibold text-muted">{s.name}</span>
                     </div>
-                    <p className="text-[11px] text-neutral-600 dark:text-neutral-400 truncate max-w-xs">
-                      {p.description}
-                    </p>
-                    <div className="flex items-center gap-2 text-[10px] text-red-600 font-medium">
-                      <Calendar className="h-3 w-3" />
-                      Due on {formatISTDate(p.dueDate)}
-                      {p.currentArtisanId && (
-                        <span>• Karigar: {p.currentArtisanId.name}</span>
+                    <div className="font-display tabular mt-1 text-3xl font-semibold">{ps.length}</div>
+                    <div className="mt-1 flex h-7 -space-x-2">
+                      {ps.slice(0, 5).map((p) => {
+                        const c = coverPhoto(p);
+                        return c ? <img key={p.id} src={c.url} alt="" className="size-7 rounded-full object-cover ring-2 ring-bg" /> : null;
+                      })}
+                      {ps.length > 5 && (
+                        <span className="grid size-7 place-items-center rounded-full bg-panel-2 text-[10px] font-bold ring-2 ring-bg">+{ps.length - 5}</span>
                       )}
                     </div>
-                  </div>
-
-                  <Link href={`/pieces/${p._id.toString()}`}>
-                    <button className="px-2.5 py-1 text-xs rounded-md bg-white border border-red-300 text-red-700 hover:bg-red-50 dark:bg-neutral-900 dark:border-red-800 dark:text-red-300 font-semibold cursor-pointer">
-                      View Piece
-                    </button>
                   </Link>
+                  {i < db.settings.stages.length - 1 && <span className="h-px w-5 bg-gradient-to-r from-gold/60 to-gold/10" />}
                 </div>
-              ))
-            ) : (
-              <div className="p-6 text-center text-xs text-neutral-400 bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800">
-                🎉 No overdue pieces! All production schedules are on time.
-              </div>
-            )}
+              );
+            })}
           </div>
         </div>
-      </div>
+      </Panel>
 
-      {/* 5. Due Next 7 Days & Ready for Delivery */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pt-2">
-        {/* Due Next 7 Days */}
-        <Card className="border-neutral-200/80 dark:border-neutral-800">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-semibold uppercase tracking-wider text-neutral-500 flex items-center gap-1.5">
-              <Calendar className="h-3.5 w-3.5 text-blue-600" />
-              Delivery Milestones in Next 7 Days ({dueSoonPieces.length})
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {dueSoonPieces.length > 0 ? (
-              dueSoonPieces.map((p: any) => (
-                <div
-                  key={p._id.toString()}
-                  className="flex items-center justify-between p-2.5 rounded-lg border border-neutral-100 bg-neutral-50/60 dark:border-neutral-800 dark:bg-neutral-800/40 text-xs"
-                >
-                  <div>
-                    <Link
-                      href={`/pieces/${p._id.toString()}`}
-                      className="font-bold text-neutral-900 dark:text-neutral-100 hover:underline"
-                    >
-                      {p.pieceNo}
+      <div className="grid gap-6 xl:grid-cols-[1.55fr_1fr]">
+        {/* attention */}
+        <Panel className="p-5">
+          <SectionTitle kicker="Act now" title="Needs your attention" />
+          <div className="space-y-5">
+            <div>
+              <div className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-info">
+                <BadgeCheck className="size-4" /> Karigar submissions to review · {submissions.length}
+              </div>
+              {submissions.length ? (
+                <div className="space-y-2">
+                  {submissions.map((w) => {
+                    const p = pieceOf(db, w.pieceId)!;
+                    const a = db.artisans.find((x) => x.id === w.artisanId)!;
+                    return (
+                      <div key={w.id} className="flex items-center gap-3 rounded-2xl border border-line bg-panel p-2.5">
+                        <Thumb photo={w.submissionPhotos[0]} photos={w.submissionPhotos} className="size-14" />
+                        <div className="min-w-0 flex-1">
+                          <Link href={`/pieces/${p.id}`} className="block truncate text-sm font-semibold hover:text-gold">
+                            {p.name} <span className="text-faint">· {p.code}</span>
+                          </Link>
+                          <div className="flex flex-wrap items-center gap-x-2 text-xs text-muted">
+                            <span className="inline-flex items-center gap-1">
+                              <Avatar name={a.name} hue={a.hue} size={16} /> {a.name}
+                            </span>
+                            <span>· {stageOf(db, w.stageId)?.name}</span>
+                            <WeightDelta base={w.issuedWeightMg} value={w.submittedWeightMg} />
+                          </div>
+                        </div>
+                        <Button size="sm" variant="gold" onClick={() => setDlg({ review: w.id })}>
+                          Review
+                        </Button>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="text-sm text-faint">All caught up ✨</div>
+              )}
+            </div>
+
+            {!!overdueWO.length && (
+              <div>
+                <div className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-danger">
+                  <AlertTriangle className="size-4" /> Overdue with karigars · {overdueWO.length}
+                </div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {overdueWO.map((w) => {
+                    const p = pieceOf(db, w.pieceId)!;
+                    const a = db.artisans.find((x) => x.id === w.artisanId)!;
+                    return (
+                      <Link key={w.id} href={`/pieces/${p.id}`} className="flex items-center gap-2.5 rounded-xl border border-danger/25 bg-danger/5 p-2.5">
+                        <Avatar name={a.name} hue={a.hue} size={30} />
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-[13px] font-semibold">{p.name}</div>
+                          <div className="text-[11px] text-muted">
+                            {a.name} · {w.number}
+                          </div>
+                        </div>
+                        <DueChip iso={w.dueDate} />
+                      </Link>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            <div>
+              <div className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-warn">
+                <Clock className="size-4" /> Orders due within 5 days · {dueSoon.length}
+              </div>
+              <div className="divide-y divide-line overflow-hidden rounded-2xl border border-line">
+                {dueSoon.map((o) => {
+                  const ps = piecesOf(db, o.id);
+                  return (
+                    <Link key={o.id} href={`/orders/${o.id}`} className="flex items-center gap-3 bg-panel px-3 py-2.5 transition hover:bg-panel-2">
+                      <Thumb photos={ps.map(coverPhoto).filter(Boolean) as never} className="size-10" />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="truncate text-sm font-semibold">{o.title}</span>
+                          <PriorityBadge p={o.priority} />
+                        </div>
+                        <div className="truncate text-[11px] text-muted">
+                          {o.number} · {customerOf(db, o.customerId)?.name} · {ps.length} pcs
+                        </div>
+                      </div>
+                      <div className="hidden sm:block">
+                        <OrderStatusPill order={o} />
+                      </div>
+                      <DueChip iso={o.dueDate} />
                     </Link>
-                    <p className="text-[11px] text-neutral-500 truncate max-w-xs">
-                      {p.category} — {p.description}
-                    </p>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </Panel>
+
+        {/* karigar bench */}
+        <Panel className="p-5">
+          <SectionTitle
+            kicker="Workshop"
+            title="Karigar bench"
+            action={
+              <Button size="sm" variant="ghost" href="/karigars">
+                All <ArrowRight className="size-3.5" />
+              </Button>
+            }
+          />
+          <div className="space-y-2">
+            {db.artisans.map((a) => {
+              const l = artisanLoad(db, a.id);
+              return (
+                <Link key={a.id} href={`/karigars/${a.id}`} className="flex items-center gap-3 rounded-2xl p-2 transition hover:bg-panel">
+                  <Ring value={l.open.length / 5} size={46} color={l.overdue.length ? "var(--danger)" : "var(--gold)"}>
+                    <Avatar name={a.name} hue={a.hue} size={34} />
+                  </Ring>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-semibold">{a.name}</div>
+                    <div className="truncate text-[11px] text-muted">{a.speciality}</div>
                   </div>
                   <div className="text-right">
-                    <span className="font-semibold text-blue-700 dark:text-blue-400">
-                      {formatISTDate(p.dueDate)}
-                    </span>
-                    <p className="text-[10px] text-neutral-400">{p.currentLocation}</p>
+                    <div className="tabular text-sm font-semibold">{l.open.length} open</div>
+                    <div className="tabular text-[11px] text-muted">{gShort(l.metalOutMg)} out</div>
                   </div>
-                </div>
-              ))
-            ) : (
-              <p className="text-xs text-neutral-400 text-center py-4">
-                No orders due in the next 7 days.
-              </p>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Ready in Vault — Not Delivered */}
-        <Card className="border-neutral-200/80 dark:border-neutral-800">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-xs font-semibold uppercase tracking-wider text-neutral-500 flex items-center gap-1.5">
-              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
-              Ready Pieces Awaiting Customer Handover ({readyNotDelivered.length})
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {readyNotDelivered.length > 0 ? (
-              readyNotDelivered.map((p: any) => (
-                <div
-                  key={p._id.toString()}
-                  className="flex items-center justify-between p-2.5 rounded-lg border border-emerald-100 bg-emerald-50/30 dark:border-emerald-900/40 dark:bg-emerald-950/20 text-xs"
-                >
-                  <div>
-                    <Link
-                      href={`/pieces/${p._id.toString()}`}
-                      className="font-bold text-neutral-900 dark:text-neutral-100 hover:underline"
-                    >
-                      {p.pieceNo}
-                    </Link>
-                    <p className="text-[11px] text-neutral-500">
-                      Customer: {p.customerId?.name || "Customer"} ({p.customerId?.phone || ""})
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <span className="font-mono font-bold text-emerald-700 dark:text-emerald-400">
-                      {formatWeight(p.finalWeightMg || p.estimatedWeightMg)}
-                    </span>
-                    <p className="text-[10px] text-neutral-400">{p.metal} {p.purity}</p>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <p className="text-xs text-neutral-400 text-center py-4">
-                No pieces pending handover in vault.
-              </p>
-            )}
-          </CardContent>
-        </Card>
+                  {!!l.overdue.length && <Tone tone="danger">{l.overdue.length} late</Tone>}
+                  {!!l.submitted.length && <Tone tone="info">{l.submitted.length} to review</Tone>}
+                </Link>
+              );
+            })}
+          </div>
+        </Panel>
       </div>
+
+      <div className="grid gap-6 lg:grid-cols-3">
+        {/* chart */}
+        <Panel className="p-5 lg:col-span-2">
+          <SectionTitle kicker="Throughput" title="Pieces received vs delivered" />
+          <div className="h-[260px]" role="img" aria-label="Weekly pieces received and delivered, last 8 weeks">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={weekly} barGap={2} margin={{ left: -18, right: 6, top: 8 }}>
+                <CartesianGrid vertical={false} stroke="var(--line)" />
+                <XAxis dataKey="week" tickLine={false} axisLine={false} tick={{ fill: "var(--faint)", fontSize: 11 }} />
+                <YAxis allowDecimals={false} tickLine={false} axisLine={false} tick={{ fill: "var(--faint)", fontSize: 11 }} />
+                <Tooltip
+                  cursor={{ fill: "var(--panel-2)" }}
+                  contentStyle={{ background: "var(--panel-solid)", border: "1px solid var(--line-2)", borderRadius: 12, color: "var(--text)", fontSize: 12 }}
+                  labelStyle={{ color: "var(--muted)" }}
+                  itemStyle={{ color: "var(--text)" }}
+                />
+                <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12, color: "var(--muted)" }} />
+                <RBar dataKey="Received" fill={chart[0]} radius={[4, 4, 0, 0]} maxBarSize={18} />
+                <RBar dataKey="Delivered" fill={chart[1]} radius={[4, 4, 0, 0]} maxBarSize={18} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Panel>
+
+        {/* outside + ready */}
+        <Panel className="p-5">
+          <SectionTitle kicker="Out & ready" title="Job work & dispatch" />
+          <div className="space-y-2">
+            {openJobs.map((j) => {
+              const p = pieceOf(db, j.pieceId)!;
+              return (
+                <Link key={j.id} href={`/pieces/${p.id}`} className="flex items-center gap-2.5 rounded-xl border border-line bg-panel p-2">
+                  <Thumb photo={coverPhoto(p)} className="size-10" />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[13px] font-semibold">{p.name}</div>
+                    <div className="truncate text-[11px] text-muted">
+                      {j.process} · {vendorOf(db, j.vendorId)?.name}
+                    </div>
+                  </div>
+                  <DueChip iso={j.expectedDate} />
+                </Link>
+              );
+            })}
+            <div className="hairline my-3" />
+            {readyPieces.map((p) => (
+              <div key={p.id} className="flex items-center gap-2.5 rounded-xl border border-ok/25 bg-ok/5 p-2">
+                <Thumb photo={coverPhoto(p)} className="size-10" />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[13px] font-semibold">{p.name}</div>
+                  <div className="truncate text-[11px] text-muted">
+                    {customerOf(db, orderOf(db, p.orderId)!.customerId)?.name} · {g(p.finalWeightMg)}
+                  </div>
+                </div>
+                <Truck className="size-4 text-ok" />
+              </div>
+            ))}
+          </div>
+        </Panel>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-[1.2fr_1fr]">
+        <Panel className="p-5">
+          <SectionTitle
+            kicker="Photo vault"
+            title="Fresh from the bench"
+            action={
+              <Button size="sm" variant="ghost" href="/photos">
+                Vault <ArrowRight className="size-3.5" />
+              </Button>
+            }
+          />
+          <div className="grid grid-cols-3 gap-2">
+            {photos.map((p, i) => (
+              <button
+                key={p.id}
+                onClick={() => open(photos, i)}
+                className={cn("group relative overflow-hidden rounded-xl", i === 0 ? "col-span-2 row-span-2 aspect-square" : "aspect-square")}
+              >
+                <img src={p.url} alt="" className="size-full object-cover transition duration-700 group-hover:scale-110" />
+                <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 pt-6 text-left text-[10px] text-white/90">
+                  {p.caption} · {dateShort(p.at)}
+                </span>
+              </button>
+            ))}
+          </div>
+        </Panel>
+        <Panel className="p-5">
+          <SectionTitle kicker="Audit trail" title="Latest activity" />
+          <div className="scroll-thin max-h-[440px] overflow-y-auto pr-1">
+            <Timeline items={db.activity.slice(0, 14)} dense />
+          </div>
+        </Panel>
+      </div>
+
+      <IssueWorkDialog open={dlg === "assign"} onClose={() => setDlg(null)} />
+      <SendJobDialog open={dlg === "job"} onClose={() => setDlg(null)} />
+      <DeliveryDialog open={dlg === "deliver"} onClose={() => setDlg(null)} />
+      {typeof dlg === "object" && dlg && <ReviewDialog open onClose={() => setDlg(null)} woId={dlg.review} />}
     </div>
   );
 }

@@ -1,86 +1,157 @@
-import * as React from "react";
-import { Metadata } from "next";
-import { connectDB } from "@/lib/db";
-import { Delivery } from "@/models/Delivery";
-import { OrderItem } from "@/models/OrderItem";
-import { DeliveryListClient, DeliveryRow, ReadyOrderOption } from "@/components/deliveries/DeliveryListClient";
+"use client";
+import { useState } from "react";
+import Link from "next/link";
+import { Download, PackageCheck, Share2, Truck } from "lucide-react";
+import { useCan, useDB } from "@/lib/store";
+import { coverPhoto, customerOf, orderOf, pieceOf, piecesOf } from "@/lib/queries";
+import { date, g } from "@/lib/format";
+import { downloadPdf, sharePdf } from "@/lib/pdf-client";
+import { Button, Empty, PageHeader, Panel, SectionTitle, Select } from "@/components/ui";
+import { DueChip } from "@/components/domain";
+import { Thumb } from "@/components/photos";
+import { DeliveryDialog } from "@/components/actions";
 
-export const metadata: Metadata = {
-  title: "Deliveries | BMS",
-  description: "Track customer handovers, final weights, and delivery notes",
-};
-
-export default async function DeliveriesPage() {
-  await connectDB();
-
-  const [deliveriesRaw, readyPiecesRaw] = await Promise.all([
-    Delivery.find({ isDeleted: false })
-      .populate("customerId", "name phone")
-      .populate("orderId", "orderNo")
-      .populate("items.orderItemId", "pieceNo category")
-      .sort({ deliveryDate: -1 })
-      .lean(),
-    OrderItem.find({
-      isDeleted: false,
-      systemStatus: "READY",
-    })
-      .populate("orderId", "orderNo")
-      .populate("customerId", "name phone")
-      .lean(),
-  ]);
-
-  const initialDeliveries: DeliveryRow[] = deliveriesRaw.map((d: any) => ({
-    id: d._id.toString(),
-    deliveryNo: d.deliveryNo,
-    customerId: d.customerId?._id?.toString() || d.customerId?.toString(),
-    customerName: d.customerId?.name || "Unknown Customer",
-    customerPhone: d.customerId?.phone || "",
-    orderId: d.orderId?._id?.toString() || d.orderId?.toString(),
-    orderNo: d.orderId?.orderNo || "Unknown Order",
-    piecesCount: d.items?.length || 0,
-    deliveryDate: d.deliveryDate,
-    receivedBy: d.receivedBy,
-    receiverPhone: d.receiverPhone,
-    mode: d.mode || "IN_PERSON",
-    remarks: d.remarks || "",
-    photos: d.photos || [],
-    items: (d.items || []).map((it: any) => ({
-      pieceNo: it.orderItemId?.pieceNo || "Unknown Piece",
-      category: it.orderItemId?.category || "",
-      finalWeightMg: it.finalWeightMg || 0,
-    })),
-  }));
-
-  // Group ready pieces by order
-  const orderMap = new Map<string, ReadyOrderOption>();
-  readyPiecesRaw.forEach((p: any) => {
-    if (!p.orderId || !p.customerId) return;
-    const orderId = p.orderId._id?.toString() || p.orderId.toString();
-    if (!orderMap.has(orderId)) {
-      orderMap.set(orderId, {
-        orderId,
-        orderNo: p.orderId.orderNo || "Unknown Order",
-        customerId: p.customerId._id?.toString() || p.customerId.toString(),
-        customerName: p.customerId.name || "Customer",
-        customerPhone: p.customerId.phone || "",
-        readyPieces: [],
-      });
-    }
-
-    orderMap.get(orderId)!.readyPieces.push({
-      pieceId: p._id.toString(),
-      pieceNo: p.pieceNo,
-      category: p.category,
-      description: p.description,
-      estimatedWeightMg: p.estimatedWeightMg || 0,
-    });
-  });
-
-  const readyOrders = Array.from(orderMap.values());
-
+export default function DeliveriesPage() {
+  const db = useDB();
+  const can = useCan("delivery.create");
+  const [deliver, setDeliver] = useState<string | null>(null);
+  const [cust, setCust] = useState("");
+  const readyOrders = db.orders.filter((o) => piecesOf(db, o.id).some((p) => p.location === "READY"));
+  const dels = db.deliveries.filter((d) => !cust || d.customerId === cust);
   return (
-    <div className="space-y-6">
-      <DeliveryListClient initialDeliveries={initialDeliveries} readyOrders={readyOrders} />
+    <div>
+      <PageHeader
+        kicker="Dispatch"
+        title="Customer deliveries"
+        sub="Ready pieces waiting for handover, and the complete customer-wise delivery register with notes and photos."
+      />
+      <SectionTitle kicker={`${readyOrders.length} orders`} title="Ready for handover" />
+      {readyOrders.length ? (
+        <div className="mb-8 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {readyOrders.map((o) => {
+            const ready = piecesOf(db, o.id).filter((p) => p.location === "READY");
+            const total = piecesOf(db, o.id).length;
+            const c = customerOf(db, o.customerId);
+            return (
+              <Panel lux key={o.id} className="p-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold tracking-wider text-gold">{o.number}</span>
+                  <DueChip iso={o.dueDate} />
+                </div>
+                <Link href={`/orders/${o.id}`} className="font-display mt-1 block truncate text-xl font-semibold hover:text-gold">
+                  {o.title}
+                </Link>
+                <div className="text-xs text-muted">
+                  {c?.name} · {c?.phone}
+                </div>
+                <div className="mt-3 flex gap-2">
+                  {ready.map((p) => (
+                    <Thumb key={p.id} photo={coverPhoto(p)} photos={p.photos} className="size-16" />
+                  ))}
+                </div>
+                <div className="mt-3 flex items-center justify-between text-sm">
+                  <span className="text-muted">
+                    {ready.length} of {total} ready · <b className="tabular text-text">{g(ready.reduce((s, p) => s + (p.finalWeightMg ?? 0), 0))}</b>
+                  </span>
+                  {can && (
+                    <Button size="sm" variant="gold" icon={<Truck className="size-3.5" />} onClick={() => setDeliver(o.id)}>
+                      Deliver
+                    </Button>
+                  )}
+                </div>
+              </Panel>
+            );
+          })}
+        </div>
+      ) : (
+        <Panel className="mb-8">
+          <Empty icon={<PackageCheck className="size-7" />} title="Nothing waiting" sub="Pieces appear here after QC." />
+        </Panel>
+      )}
+
+      <SectionTitle
+        kicker="History"
+        title="Delivery register"
+        action={
+          <Select value={cust} onChange={(e) => setCust(e.target.value)} className="w-52 rounded-full">
+            <option value="">All customers</option>
+            {db.customers.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name}
+              </option>
+            ))}
+          </Select>
+        }
+      />
+      <Panel className="overflow-x-auto">
+        <table className="w-full min-w-[820px] text-sm">
+          <thead>
+            <tr className="border-b border-line text-left text-[10px] font-bold uppercase tracking-widest text-faint">
+              <th className="p-4">Note</th>
+              <th>Customer</th>
+              <th>Order</th>
+              <th>Pieces</th>
+              <th>Weight</th>
+              <th>Date</th>
+              <th>Mode / received by</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {dels.map((d) => {
+              const c = customerOf(db, d.customerId);
+              const o = orderOf(db, d.orderId);
+              return (
+                <tr key={d.id} className="border-b border-line last:border-0 hover:bg-panel">
+                  <td className="p-4 font-semibold">{d.number}</td>
+                  <td>
+                    <Link href={`/customers/${c?.id}`} className="hover:text-gold">
+                      {c?.name}
+                    </Link>
+                  </td>
+                  <td>
+                    <Link href={`/orders/${o?.id}`} className="text-muted hover:text-gold">
+                      {o?.number}
+                    </Link>
+                  </td>
+                  <td>
+                    <div className="flex gap-1">
+                      {d.items.map((i) => {
+                        const p = pieceOf(db, i.pieceId)!;
+                        return <Thumb key={i.pieceId} photo={coverPhoto(p)} photos={p.photos} className="size-9" />;
+                      })}
+                    </div>
+                  </td>
+                  <td className="tabular">{g(d.items.reduce((s, i) => s + i.weightMg, 0))}</td>
+                  <td>{date(d.date)}</td>
+                  <td className="text-muted">
+                    {d.mode} · {d.receivedBy}
+                  </td>
+                  <td className="pr-3 text-right whitespace-nowrap">
+                    <Button size="sm" variant="ghost" icon={<Download className="size-3.5" />} onClick={() => downloadPdf("delivery-note", d.id)}>
+                      PDF
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      icon={<Share2 className="size-3.5" />}
+                      onClick={() => sharePdf("delivery-note", d.id, c?.phone, `Delivery note ${d.number} from ${db.settings.company.name}`)}
+                    />
+                  </td>
+                </tr>
+              );
+            })}
+            {!dels.length && (
+              <tr>
+                <td colSpan={8} className="p-8 text-center text-faint">
+                  No deliveries recorded.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </Panel>
+      <DeliveryDialog open={!!deliver} onClose={() => setDeliver(null)} orderId={deliver ?? undefined} />
     </div>
   );
 }
