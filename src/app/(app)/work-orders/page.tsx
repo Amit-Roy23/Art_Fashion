@@ -71,9 +71,9 @@ export default function WorkOrdersPage() {
             return (
               <Panel key={w.id} className="p-3">
                 <div className="flex gap-3">
-                  <Thumb photo={coverPhoto(p)} photos={p.photos} className="size-20" />
+                  <Thumb photo={coverPhoto(p)} photos={p.photos} className="size-16 sm:size-20" />
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
                       <span className="text-[11px] font-bold tracking-wider text-gold">{w.number}</span>
                       <WorkStatusPill wo={w} />
                     </div>

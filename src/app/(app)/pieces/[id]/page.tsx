@@ -168,7 +168,7 @@ export default function PieceDetail() {
 
           <div>
             <div className="mb-2 text-[10px] font-bold uppercase tracking-[.22em] text-gold">Next step</div>
-            <div className="grid gap-2 sm:grid-cols-2">
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
               {p.location === "OFFICE" && (
                 <>
                   {!lateStage && canAssign && (

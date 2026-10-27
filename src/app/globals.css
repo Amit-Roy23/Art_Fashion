@@ -256,6 +256,16 @@ body {
 }
 
 @layer components {
+/* Grids never grow wider than their container: a bare .grid gets one shrinkable
+   column (grid-cols-* utilities override this), and grid items may shrink below
+   their content width so tables, nowrap text and pills stay inside. */
+.grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+.grid > * {
+  min-width: 0;
+}
+
 /* inputs */
 .field {
   width: 100%;

@@ -29,15 +29,15 @@ export default function BoardPage() {
           </span>
         }
         actions={
-          <div className="flex gap-2">
-            <Select value={loc} onChange={(e) => setLoc(e.target.value)} className="w-40 rounded-full">
+          <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
+            <Select value={loc} onChange={(e) => setLoc(e.target.value)} className="rounded-full sm:w-40">
               <option value="">Everywhere</option>
               <option value="OFFICE">In office</option>
               <option value="ARTISAN">With karigars</option>
               <option value="JOBWORK">At job work</option>
               <option value="READY">Ready</option>
             </Select>
-            <Select value={art} onChange={(e) => setArt(e.target.value)} className="w-44 rounded-full">
+            <Select value={art} onChange={(e) => setArt(e.target.value)} className="rounded-full sm:w-44">
               <option value="">All karigars</option>
               {db.artisans.map((a) => (
                 <option key={a.id} value={a.id}>

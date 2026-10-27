@@ -84,7 +84,7 @@ export default function Dashboard() {
       {/* hero */}
       <Panel lux className="rise overflow-hidden p-6 md:p-8">
         <div className="facet-bg pointer-events-none absolute inset-0 opacity-40 [mask-image:linear-gradient(90deg,transparent,black)]" />
-        <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+        <div className="relative flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
           <div>
             <div className="text-[11px] font-bold uppercase tracking-[.26em] text-gold">{format(new Date(), "EEEE, dd MMMM yyyy")}</div>
             <h1 className="font-display mt-2 text-4xl leading-tight font-semibold md:text-5xl">
@@ -99,7 +99,7 @@ export default function Dashboard() {
               </span>
             </p>
           </div>
-          <div className="grid shrink-0 grid-cols-2 gap-2 lg:w-[360px]">
+          <div className="grid shrink-0 grid-cols-2 gap-2 sm:max-w-md xl:w-[360px]">
             <Button variant="gold" href="/orders/new" icon={<Plus className="size-4" />}>
               New order
             </Button>
@@ -117,7 +117,7 @@ export default function Dashboard() {
       </Panel>
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
         {[
           { label: "Total orders", v: k.total, icon: ClipboardList, href: "/orders", tone: "var(--gold)" },
           { label: "Pending start", v: k.pending, icon: Hourglass, href: "/orders?f=pending", tone: "#c084fc" },
@@ -140,7 +140,7 @@ export default function Dashboard() {
               </span>
               <ArrowRight className="size-4 text-faint transition group-hover:translate-x-0.5 group-hover:text-gold" />
             </div>
-            <div className="font-display tabular mt-3 text-4xl font-semibold">{t.v}</div>
+            <div className="font-display tabular mt-3 text-3xl font-semibold sm:text-4xl">{t.v}</div>
             <div className="text-xs font-medium text-muted">{t.label}</div>
           </Link>
         ))}
@@ -207,9 +207,9 @@ export default function Dashboard() {
                     const p = pieceOf(db, w.pieceId)!;
                     const a = db.artisans.find((x) => x.id === w.artisanId)!;
                     return (
-                      <div key={w.id} className="flex items-center gap-3 rounded-2xl border border-line bg-panel p-2.5">
+                      <div key={w.id} className="flex flex-wrap items-center gap-3 rounded-2xl border border-line bg-panel p-2.5">
                         <Thumb photo={w.submissionPhotos[0]} photos={w.submissionPhotos} className="size-14" />
-                        <div className="min-w-0 flex-1">
+                        <div className="min-w-0 flex-1 basis-40">
                           <Link href={`/pieces/${p.id}`} className="block truncate text-sm font-semibold hover:text-gold">
                             {p.name} <span className="text-faint">· {p.code}</span>
                           </Link>
@@ -221,7 +221,7 @@ export default function Dashboard() {
                             <WeightDelta base={w.issuedWeightMg} value={w.submittedWeightMg} />
                           </div>
                         </div>
-                        <Button size="sm" variant="gold" onClick={() => setDlg({ review: w.id })}>
+                        <Button size="sm" variant="gold" className="ml-auto max-sm:w-full" onClick={() => setDlg({ review: w.id })}>
                           Review
                         </Button>
                       </div>
@@ -312,13 +312,17 @@ export default function Dashboard() {
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-semibold">{a.name}</div>
                     <div className="truncate text-[11px] text-muted">{a.speciality}</div>
+                    {(!!l.overdue.length || !!l.submitted.length) && (
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {!!l.overdue.length && <Tone tone="danger">{l.overdue.length} late</Tone>}
+                        {!!l.submitted.length && <Tone tone="info">{l.submitted.length} to review</Tone>}
+                      </div>
+                    )}
                   </div>
-                  <div className="text-right">
+                  <div className="shrink-0 text-right">
                     <div className="tabular text-sm font-semibold">{l.open.length} open</div>
                     <div className="tabular text-[11px] text-muted">{gShort(l.metalOutMg)} out</div>
                   </div>
-                  {!!l.overdue.length && <Tone tone="danger">{l.overdue.length} late</Tone>}
-                  {!!l.submitted.length && <Tone tone="info">{l.submitted.length} to review</Tone>}
                 </Link>
               );
             })}
@@ -326,9 +330,9 @@ export default function Dashboard() {
         </Panel>
       </div>
 
-      <div className="grid gap-6 lg:grid-cols-3">
+      <div className="grid gap-6 xl:grid-cols-3">
         {/* chart */}
-        <Panel className="p-5 lg:col-span-2">
+        <Panel className="p-5 xl:col-span-2">
           <SectionTitle kicker="Throughput" title="Pieces received vs delivered" />
           <div className="h-[260px]" role="img" aria-label="Weekly pieces received and delivered, last 8 weeks">
             <ResponsiveContainer width="100%" height="100%">

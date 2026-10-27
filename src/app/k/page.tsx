@@ -35,7 +35,13 @@ export default function KarigarHome() {
           ["Late", late],
         ].map(([k, v], i) => (
           <Panel key={k as string} lux={i === 1} className="p-3 text-center">
-            <div className={i === 2 && late ? "font-display tabular text-3xl font-semibold text-danger" : "font-display tabular text-3xl font-semibold"}>
+            <div
+              className={
+                i === 2 && late
+                  ? "font-display tabular text-2xl font-semibold whitespace-nowrap sm:text-3xl text-danger"
+                  : "font-display tabular text-2xl font-semibold whitespace-nowrap sm:text-3xl"
+              }
+            >
               {v}
             </div>
             <div className="text-[11px] text-muted">{k}</div>
