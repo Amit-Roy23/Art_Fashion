@@ -1,4 +1,4 @@
-# Aurum BMS — Jewellery Manufacturing Suite (demo)
+# Layek Jewels — Business Management Software (demo)
 
 A cloud-hosted, mobile-responsive **Business Management Software** for a jewellery manufacturing business:
 order booking, karigar (artisan) work orders, configurable production stages, outside job work, a weight ledger

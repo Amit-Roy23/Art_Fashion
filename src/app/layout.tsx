@@ -8,7 +8,7 @@ const display = Cormorant_Garamond({ subsets: ["latin"], weight: ["400", "500", 
 const sans = Manrope({ subsets: ["latin"], variable: "--font-manrope" });
 
 export const metadata: Metadata = {
-  title: "Aurum BMS — Jewellery Manufacturing Suite",
+  title: "Layek Jewels — Business Management Software",
   description: "Orders, karigar work orders, production stages, outside job work, weights, photos and deliveries for jewellery manufacturers.",
 };
 
@@ -20,7 +20,7 @@ export const viewport: Viewport = {
 };
 
 // Applies the saved theme before first paint to avoid a flash.
-const themeScript = `try{document.documentElement.dataset.theme=localStorage.getItem("aurum-theme")||"noir"}catch(e){document.documentElement.dataset.theme="noir"}`;
+const themeScript = `try{document.documentElement.dataset.theme=localStorage.getItem("lj-theme")||"noir"}catch(e){document.documentElement.dataset.theme="noir"}`;
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
