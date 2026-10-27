@@ -1,20 +1,6 @@
 "use client";
 import { useRouter } from "next/navigation";
-import {
-  ArrowRight,
-  Camera,
-  ClipboardList,
-  Crown,
-  FileText,
-  Hammer,
-  Scale,
-  ShieldCheck,
-  Smartphone,
-  Sparkles,
-  Truck,
-  UserCog,
-  Users,
-} from "lucide-react";
+import { ArrowRight, Camera, ClipboardList, Crown, FileText, Hammer, Scale, ShieldCheck, Smartphone, Sparkles, Truck, UserCog, Users } from "lucide-react";
 import { Ready } from "@/components/Providers";
 import { Wordmark } from "@/components/brand";
 import { Avatar, Panel } from "@/components/ui";
@@ -153,7 +139,7 @@ function LandingInner() {
                   key={u.id}
                   onClick={() => enter(u)}
                   className={cn(
-                    "group flex w-full items-center gap-4 rounded-2xl border p-4 text-left transition-all hover:-translate-y-0.5",
+                    "group flex w-full items-center gap-3 rounded-2xl border p-3 text-left transition-all hover:-translate-y-0.5 sm:gap-4 sm:p-4",
                     i === 0 ? "border-gold/50 bg-gradient-to-r from-gold/15 to-transparent" : "border-line bg-panel hover:border-gold/40",
                   )}
                 >
@@ -163,8 +149,8 @@ function LandingInner() {
                     <M.icon className="size-5" />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="flex items-center gap-2">
-                      <span className="font-semibold">{u.name}</span>
+                    <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="font-semibold whitespace-nowrap">{u.name}</span>
                       <span className="rounded-full bg-panel-2 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-muted">{u.title}</span>
                     </span>
                     <span className="mt-0.5 block text-xs text-muted">{M.blurb}</span>
@@ -182,7 +168,7 @@ function LandingInner() {
             </span>
             <div className="hairline flex-1" />
           </div>
-          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <div className="mt-4 grid grid-cols-1 gap-2 min-[360px]:grid-cols-2 sm:grid-cols-3">
             {karigars.map((u) => {
               const a = db.artisans.find((x) => x.id === u.artisanId);
               return (

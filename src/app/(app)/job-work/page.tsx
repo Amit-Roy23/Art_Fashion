@@ -85,9 +85,9 @@ export default function JobWorkPage() {
             return (
               <Panel key={j.id} className="p-3">
                 <div className="flex gap-3">
-                  <Thumb photo={coverPhoto(p)} photos={[...j.photos]} className="size-20" />
+                  <Thumb photo={coverPhoto(p)} photos={[...j.photos]} className="size-16 sm:size-20" />
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
                       <span className="text-[11px] font-bold tracking-wider text-gold">
                         {j.number} · {j.process}
                       </span>
@@ -97,7 +97,7 @@ export default function JobWorkPage() {
                       {p.name} <span className="text-faint">· {p.code}</span>
                     </Link>
                     <div className="truncate text-xs text-muted">{v?.name}</div>
-                    <div className="mt-2 grid grid-cols-4 gap-2">
+                    <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
                       <KeyVal k="Sent" v={date(j.dispatchDate)} />
                       <KeyVal k="Sent wt" v={<span className="tabular">{g(j.sentWeightMg)}</span>} />
                       <KeyVal k={j.returnedAt ? "Returned" : "Expected"} v={j.returnedAt ? date(j.returnedAt) : <DueChip iso={j.expectedDate} />} />

@@ -74,7 +74,7 @@ export default function CustomerDetail() {
           ["Gold delivered", g(deliveredMg)],
         ].map(([k, v]) => (
           <Panel key={k as string} className="p-4">
-            <div className="font-display tabular text-3xl font-semibold">{v}</div>
+            <div className="font-display tabular text-2xl font-semibold whitespace-nowrap sm:text-3xl">{v}</div>
             <div className="text-xs text-muted">{k}</div>
           </Panel>
         ))}

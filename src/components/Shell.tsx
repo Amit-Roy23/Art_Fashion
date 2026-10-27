@@ -282,7 +282,7 @@ function MobileDock({ onMore }: { onMore: () => void }) {
               key={i.href}
               href={i.href}
               className={cn(
-                "flex w-16 flex-col items-center gap-0.5 rounded-xl py-1.5 text-[10px] font-semibold",
+                "flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-xl py-1.5 text-[10px] font-semibold",
                 isActive(path, i.href) ? "text-gold" : "text-faint",
               )}
             >
@@ -294,13 +294,13 @@ function MobileDock({ onMore }: { onMore: () => void }) {
               key={idx}
               href="/orders/new"
               aria-label="New order"
-              className="gold-fill -mt-7 grid size-14 place-items-center rounded-2xl shadow-[0_10px_30px_-8px_var(--gold)] ring-4 ring-bg"
+              className="gold-fill -mt-7 mx-1 grid size-14 shrink-0 place-items-center rounded-2xl shadow-[0_10px_30px_-8px_var(--gold)] ring-4 ring-bg"
             >
               <Plus className="size-6" />
             </Link>
           ),
         )}
-        <button onClick={onMore} className="flex w-16 flex-col items-center gap-0.5 rounded-xl py-1.5 text-[10px] font-semibold text-faint">
+        <button onClick={onMore} className="flex min-w-0 flex-1 flex-col items-center gap-0.5 rounded-xl py-1.5 text-[10px] font-semibold text-faint">
           <Menu className="size-5" />
           More
         </button>

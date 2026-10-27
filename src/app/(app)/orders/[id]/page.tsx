@@ -77,7 +77,7 @@ export default function OrderDetail() {
       </Link>
 
       <Panel lux className="rise mb-6 overflow-hidden p-5 md:p-7">
-        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+        <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2 text-xs">
               <span className="font-bold tracking-wider text-gold">{o.number}</span>
