@@ -166,7 +166,7 @@ function Sidebar() {
     <aside className="fixed inset-y-0 left-0 z-50 hidden w-[264px] flex-col border-r border-line bg-bg/60 backdrop-blur-xl lg:flex">
       <div className="px-6 pt-6 pb-5">
         <Link href="/dashboard">
-          <Wordmark company={db.settings.company.name} />
+          <Wordmark />
         </Link>
       </div>
       <nav className="scroll-thin flex-1 space-y-5 overflow-y-auto px-3 pb-4">

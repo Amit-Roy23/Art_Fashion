@@ -11,7 +11,7 @@ export function getTheme(): Theme {
 export function setTheme(t: Theme) {
   document.documentElement.dataset.theme = t;
   try {
-    localStorage.setItem("aurum-theme", t);
+    localStorage.setItem("lj-theme", t);
   } catch {}
   listeners.forEach((l) => l());
 }

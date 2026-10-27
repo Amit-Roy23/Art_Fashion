@@ -11,8 +11,8 @@ import type { DB, Role, User } from "./types";
 
 setAutoFreeze(false);
 
-const DB_KEY = "aurum-bms-db-v1";
-const SESSION_KEY = "aurum-bms-session";
+const DB_KEY = "lj-bms-db-v1";
+const SESSION_KEY = "lj-bms-session";
 
 interface State {
   db: DB | null;
@@ -81,7 +81,7 @@ export async function boot() {
     if (userId && !db.users.some((u) => u.id === userId)) userId = null;
     setState({ db, userId, status: "ready" });
     if (typeof BroadcastChannel !== "undefined" && !channel) {
-      channel = new BroadcastChannel("aurum-bms");
+      channel = new BroadcastChannel("lj-bms");
       channel.onmessage = async () => {
         const fresh = await idbGet<DB>(DB_KEY).catch(() => undefined);
         if (fresh) setState({ db: fresh });
