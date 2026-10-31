@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
-import { Download, Phone, RefreshCcw, Send, Sparkles, Workflow } from "lucide-react";
+import { ArrowRight, Download, RefreshCcw, Send, Sparkles, Workflow } from "lucide-react";
 import { useCan, useDB } from "@/lib/store";
 import { coverPhoto, jobCategory, pieceOf, vendorOf } from "@/lib/queries";
 import { date, daysLeft, g, inr } from "@/lib/format";
@@ -46,7 +46,7 @@ export default function JobWorkPage() {
         {db.settings.vendors.map((v) => {
           const out = db.jobWorks.filter((j) => j.vendorId === v.id && !j.returnedAt);
           return (
-            <Panel key={v.id} className="w-60 shrink-0 p-4">
+            <Link key={v.id} href={`/vendors/${v.id}`} className="panel block w-60 shrink-0 p-4 transition hover:border-gold/40">
               <div className="truncate font-semibold">{v.name}</div>
               <div className="truncate text-xs text-muted">{v.processes.join(", ")}</div>
               <div className="mt-2 flex items-end justify-between">
@@ -54,11 +54,11 @@ export default function JobWorkPage() {
                   <span className="font-display tabular text-3xl font-semibold">{out.length}</span>{" "}
                   <span className="text-xs text-muted">out · {g(out.reduce((s, j) => s + j.sentWeightMg, 0))}</span>
                 </div>
-                <a href={`tel:${v.phone}`} className="text-faint hover:text-gold">
-                  <Phone className="size-4" />
-                </a>
+                <span className="flex items-center gap-1 text-[11px] font-semibold text-gold">
+                  Register <ArrowRight className="size-3.5" />
+                </span>
               </div>
-            </Panel>
+            </Link>
           );
         })}
       </div>

@@ -15,15 +15,17 @@ import {
   Hammer,
   PackageCheck,
   ClipboardList,
+  FileDown,
+  ScrollText,
 } from "lucide-react";
 import { useCan, useDB } from "@/lib/store";
-import { customerOf, orderCat, orderProgress, orderStatus, piecesOf } from "@/lib/queries";
-import { cn, date, g } from "@/lib/format";
+import { artisanOf, coverPhoto, customerOf, orderCat, orderProgress, orderStatus, piecesOf, pieceOf, stageOf } from "@/lib/queries";
+import { cn, date, g, inr } from "@/lib/format";
 import { downloadPdf } from "@/lib/pdf-client";
 import { Bar, Button, Empty, KeyVal, Panel, SectionTitle } from "@/components/ui";
-import { DueChip, OrderStatusPill, PieceCard, PriorityBadge, Timeline } from "@/components/domain";
-import { PhotoGrid } from "@/components/photos";
-import { AddPhotosDialog, DeliveryDialog, NoteDialog, StatusDialog } from "@/components/actions";
+import { DueChip, MetalPill, OrderStatusPill, PieceCard, PriorityBadge, Timeline, WeightDelta, WorkStatusPill } from "@/components/domain";
+import { PhotoGrid, Thumb } from "@/components/photos";
+import { AddPhotosDialog, ChallanDialog, DeliveryDialog, NoteDialog, StatusDialog } from "@/components/actions";
 import { activityFor } from "@/lib/queries";
 
 export default function OrderDetail() {
@@ -31,7 +33,7 @@ export default function OrderDetail() {
   const db = useDB();
   const canStatus = useCan("orders.status");
   const canDeliver = useCan("delivery.create");
-  const [dlg, setDlg] = useState<null | "status" | "photos" | "note" | "deliver">(null);
+  const [dlg, setDlg] = useState<null | "status" | "photos" | "note" | "deliver" | "challan">(null);
   const o = db.orders.find((x) => x.id === id);
   if (!o)
     return (
@@ -59,6 +61,9 @@ export default function OrderDetail() {
     .at(-1);
   const allPhotos = [...o.photos, ...ps.flatMap((p) => p.photos)];
   const estTotal = ps.reduce((s, p) => s + p.estWeightMg, 0);
+  const currentTotal = ps.reduce((s, p) => s + (p.finalWeightMg ?? p.currentWeightMg ?? p.estWeightMg), 0);
+  const valueTotal = ps.reduce((s, p) => s + (p.valueRs ?? 0), 0);
+  const challans = db.challans.filter((x) => x.orderId === o.id);
   const finalTotal = ps.every((p) => p.finalWeightMg) ? ps.reduce((s, p) => s + (p.finalWeightMg ?? 0), 0) : undefined;
   const st = orderStatus(db, o);
   const waText = `Dear ${c?.name}, update from ${db.settings.company.name}: your order ${o.number} (${o.title}) is now “${st?.label}”. ${Math.round(prog * 100)}% complete. Thank you!`;
@@ -84,6 +89,7 @@ export default function OrderDetail() {
               <span className="rounded-md border border-line-2 px-1.5 py-0.5 text-[9px] font-bold tracking-widest text-muted uppercase">
                 {o.type === "PROJECT" ? `Project · ${ps.length} pieces` : "Single piece"}
               </span>
+              <MetalPill metal={o.metal} />
               <PriorityBadge p={o.priority} />
             </div>
             <h1 className="font-display mt-1 text-4xl leading-tight font-semibold md:text-5xl">{o.title}</h1>
@@ -106,6 +112,14 @@ export default function OrderDetail() {
             {canDeliver && readyCount > 0 && (
               <Button variant="gold" icon={<Truck className="size-4" />} onClick={() => setDlg("deliver")}>
                 Deliver ({readyCount})
+              </Button>
+            )}
+            <Button variant="soft" icon={<FileDown className="size-4" />} onClick={() => downloadPdf("order-summary", o.id)}>
+              Order PDF
+            </Button>
+            {canDeliver && cat !== "DONE" && cat !== "CANCELLED" && (
+              <Button variant="soft" icon={<ScrollText className="size-4" />} onClick={() => setDlg("challan")}>
+                Delivery challan
               </Button>
             )}
             {canStatus && (
@@ -160,6 +174,43 @@ export default function OrderDetail() {
             </div>
           </div>
           <Panel className="p-5">
+            <SectionTitle kicker="Karigar assignments" title={`Work orders (${wos.length})`} />
+            {wos.length ? (
+              <div className="space-y-2">
+                {wos.map((w) => {
+                  const p = pieceOf(db, w.pieceId)!;
+                  const a = artisanOf(db, w.artisanId);
+                  return (
+                    <div key={w.id} className="flex flex-wrap items-center gap-3 rounded-xl border border-line bg-panel p-2.5">
+                      <Thumb photo={coverPhoto(p)} photos={p.photos} className="size-12" />
+                      <div className="min-w-0 flex-1 basis-48">
+                        <div className="truncate text-sm font-semibold">
+                          {w.number} · {p.name}
+                        </div>
+                        <div className="truncate text-xs text-muted">
+                          {a?.name} · {stageOf(db, w.stageId)?.name} · issued {date(w.issuedAt)}
+                          {w.submittedAt ? ` · submitted ${date(w.submittedAt)}` : ""}
+                        </div>
+                        <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs">
+                          <span className="tabular text-muted">
+                            {g(w.issuedWeightMg)} → {g(w.submittedWeightMg)}
+                          </span>
+                          <WeightDelta base={w.issuedWeightMg} value={w.submittedWeightMg} />
+                        </div>
+                      </div>
+                      <WorkStatusPill wo={w} />
+                      <Button size="sm" variant="ghost" icon={<Download className="size-3.5" />} onClick={() => downloadPdf("work-order", w.id)}>
+                        PDF
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="py-4 text-center text-sm text-faint">No piece has been assigned to a karigar yet.</div>
+            )}
+          </Panel>
+          <Panel className="p-5">
             <SectionTitle kicker="Every photo of this order" title={`Gallery (${allPhotos.length})`} />
             <PhotoGrid photos={allPhotos} className="sm:grid-cols-5" />
           </Panel>
@@ -171,13 +222,40 @@ export default function OrderDetail() {
             <div className="grid grid-cols-2 gap-4">
               <KeyVal k="Received" v={date(o.orderDate)} />
               <KeyVal k="Booked by" v={o.createdBy} />
-              <KeyVal k="Est. weight" v={<span className="tabular">{g(estTotal)}</span>} />
-              <KeyVal k="Final weight" v={<span className="tabular">{finalTotal ? g(finalTotal) : "In progress"}</span>} />
-              <KeyVal k="Work orders" v={wos.length} />
+              <KeyVal k="Metal" v={o.metal} />
               <KeyVal k="Customer type" v={c?.type} />
+              <KeyVal k="Est. weight" v={<span className="tabular">{g(estTotal)}</span>} />
+              <KeyVal k="Current weight" v={<span className="tabular">{g(currentTotal)}</span>} />
+              <KeyVal k="Final weight" v={<span className="tabular">{finalTotal ? g(finalTotal) : "In progress"}</span>} />
+              <KeyVal k="Est. value" v={<span className="tabular">{valueTotal ? inr(valueTotal) : "—"}</span>} />
             </div>
             <div className="mt-4 rounded-xl border-l-2 border-gold/50 bg-panel px-3 py-2 text-sm text-muted italic">“{o.remarks}”</div>
           </Panel>
+
+          {!!challans.length && (
+            <Panel className="p-5">
+              <SectionTitle kicker="Goods out" title="Delivery challans" />
+              <div className="space-y-2">
+                {challans.map((ch) => (
+                  <div key={ch.id} className="flex items-center gap-3 rounded-xl border border-line bg-panel p-3">
+                    <ScrollText className="size-5 text-info" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-semibold">
+                        {ch.number} · {ch.items.length} pc · {inr(ch.items.reduce((s, i) => s + i.valueRs, 0))}
+                      </div>
+                      <div className="truncate text-xs text-muted">
+                        {date(ch.date)} · {ch.mode}
+                        {ch.vehicleNo ? ` · ${ch.vehicleNo}` : ""} · {g(ch.items.reduce((s, i) => s + i.weightMg, 0))}
+                      </div>
+                    </div>
+                    <Button size="sm" variant="ghost" icon={<Download className="size-3.5" />} onClick={() => downloadPdf("delivery-challan", ch.id)}>
+                      PDF
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </Panel>
+          )}
 
           {!!dels.length && (
             <Panel className="p-5">
@@ -214,6 +292,7 @@ export default function OrderDetail() {
       <AddPhotosDialog open={dlg === "photos"} onClose={() => setDlg(null)} target={{ orderId: o.id }} />
       <NoteDialog open={dlg === "note"} onClose={() => setDlg(null)} target={{ orderId: o.id }} />
       <DeliveryDialog open={dlg === "deliver"} onClose={() => setDlg(null)} orderId={o.id} />
+      <ChallanDialog open={dlg === "challan"} onClose={() => setDlg(null)} orderId={o.id} />
     </div>
   );
 }

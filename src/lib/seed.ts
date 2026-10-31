@@ -4,6 +4,7 @@
 import * as ops from "./ops";
 import type { Ctx } from "./ops";
 import type { DB, Piece, Settings } from "./types";
+import { DB_VERSION } from "./version";
 
 const img = (key: string, look: "sketch" | "raw" | "final") => `/demo/${key}-${look}.jpg`;
 
@@ -30,7 +31,7 @@ function baseSettings(): Settings {
       email: "orders@layekjewels.in",
       gstin: "19ABCPL1234M1Z8",
     },
-    weightTolerancePct: 0.8,
+    weightTolerancePct: 1.5,
     stages: [
       { id: "st-design", name: "Design & CAD", color: "#a78bfa", handledBy: "INHOUSE" },
       { id: "st-cast", name: "Wax & Casting", color: "#f59e0b", handledBy: "ARTISAN" },
@@ -65,7 +66,11 @@ function baseSettings(): Settings {
       { id: "js-returned", label: "Returned", color: "#34d399", category: "RETURNED" },
     ],
     categories: ["Ring", "Necklace", "Choker", "Earrings", "Bangle", "Pendant", "Maang Tikka", "Bracelet", "Nath", "Chain"],
-    purities: ["24K · 999", "22K · 916", "18K · 750", "14K · 585", "Silver · 925"],
+    metals: [
+      { name: "Gold", purities: ["24K · 999", "22K · 916", "18K · 750", "14K · 585"] },
+      { name: "Silver", purities: ["Fine silver · 999", "Sterling · 925"] },
+      { name: "Copper", purities: ["Pure copper", "Copper alloy"] },
+    ],
     processes: ["Polishing", "Rhodium plating", "Meenakari", "Laser engraving", "Hallmarking", "Sand blasting"],
     vendors: [
       { id: "v-polish", name: "Shree Ganesh Polishing Works", phone: "9831012345", city: "Bowbazar", processes: ["Polishing", "Sand blasting"] },
@@ -141,17 +146,24 @@ interface OrderScript {
   dueInDays: number;
   priority: "Normal" | "Urgent" | "VIP";
   remarks: string;
+  /** defaults to Gold */
+  metal?: "Gold" | "Silver" | "Copper";
   pieces: PieceScript[];
+  challan?: { pieces: number[]; agoDays: number; vehicleNo: string; transporter: string };
   deliver?: { pieces: number[]; agoDays: number; mode: "Hand delivery" | "Courier" | "Showroom pickup"; receivedBy: string };
   hold?: string;
 }
 
 const DAY = 864e5;
 
+// Rough demo valuation (₹ per gram incl. making) so challans carry a value.
+const RATE: Record<string, number> = { Gold: 12500, Silver: 180, Copper: 45 };
+const DEFAULT_PURITY: Record<string, string> = { Gold: "22K · 916", Silver: "Sterling · 925", Copper: "Pure copper" };
+
 export function buildSeed(nowMs = Date.now()): DB {
   const iso = (ms: number) => new Date(ms).toISOString();
   const db: DB = {
-    version: 1,
+    version: DB_VERSION,
     seededAt: iso(nowMs),
     settings: baseSettings(),
     users: [
@@ -166,6 +178,7 @@ export function buildSeed(nowMs = Date.now()): DB {
     workOrders: [],
     jobWorks: [],
     deliveries: [],
+    challans: [],
     activity: [],
     counters: {},
   };
@@ -317,6 +330,7 @@ export function buildSeed(nowMs = Date.now()): DB {
           caster: "k4",
         },
       ],
+      challan: { pieces: [0, 1], agoDays: 3.2, vehicleNo: "WB 02 AK 4521", transporter: "Sri Durga Transport" },
       deliver: { pieces: [0, 1], agoDays: 3, mode: "Courier", receivedBy: "Amit Roy (Roy Jewellers)" },
     },
     {
@@ -434,17 +448,18 @@ export function buildSeed(nowMs = Date.now()): DB {
     {
       customer: 3,
       type: "PROJECT",
-      title: "Wholesale bangles & chains",
+      title: "Wholesale silver bangles & chains",
       agoDays: 1,
       dueInDays: 21,
       priority: "Normal",
-      remarks: "Repeat order — same design as last batch. Hallmark all pieces.",
+      metal: "Silver",
+      remarks: "Repeat order — same design as last batch. Hallmark all pieces (925).",
       pieces: [
         {
           name: "Plain kada pair",
           category: "Bangle",
           img: "bangle",
-          estG: 40,
+          estG: 60,
           qty: 2,
           size: "2.8",
           specs: "Heavy machine-cut kada",
@@ -452,16 +467,16 @@ export function buildSeed(nowMs = Date.now()): DB {
           upTo: "none",
         },
         {
-          name: "Tennis bracelet",
+          name: "Silver bracelet",
           category: "Bracelet",
           img: "bracelet",
-          estG: 15,
+          estG: 22,
           stones: "CZ 18",
           specs: "Box clasp with safety lock",
           remarks: "Two-tone look",
           upTo: "none",
         },
-        { name: "Rope chain 24 inch", category: "Chain", img: "chain", estG: 25, specs: "4 mm rope", remarks: "Lobster clasp", upTo: "none" },
+        { name: "Rope chain 24 inch", category: "Chain", img: "chain", estG: 38, specs: "4 mm rope", remarks: "Lobster clasp", upTo: "none" },
       ],
     },
     {
@@ -570,6 +585,76 @@ export function buildSeed(nowMs = Date.now()): DB {
       ],
     },
     {
+      customer: 5,
+      type: "PROJECT",
+      title: "Silver chain & bracelet lot",
+      agoDays: 11,
+      dueInDays: 3,
+      priority: "Normal",
+      metal: "Silver",
+      remarks: "Showroom silver counter stock. Rhodium finish on bracelet.",
+      pieces: [
+        {
+          name: "Silver rope chain 20 inch",
+          category: "Chain",
+          img: "chain",
+          estG: 32,
+          specs: "3 mm rope, lobster clasp",
+          remarks: "Bright polish",
+          upTo: "job_send",
+          caster: "k4",
+        },
+        {
+          name: "Silver link bracelet",
+          category: "Bracelet",
+          img: "bracelet",
+          estG: 21,
+          stones: "CZ 9",
+          specs: "Box clasp",
+          remarks: "Rhodium plated",
+          upTo: "ready",
+          caster: "k4",
+          setter: "k1",
+          process: "Rhodium plating",
+          vendor: "v-rhodium",
+        },
+      ],
+    },
+    {
+      customer: 2,
+      type: "PROJECT",
+      title: "Copper wellness kada & ring",
+      agoDays: 7,
+      dueInDays: 6,
+      priority: "Normal",
+      metal: "Copper",
+      remarks: "Pure copper, no lacquer — customer wants natural finish.",
+      pieces: [
+        {
+          name: "Copper kada",
+          category: "Bangle",
+          img: "bangle",
+          estG: 48,
+          size: "2.6",
+          specs: "Twisted copper kada",
+          remarks: "No lacquer",
+          upTo: "ghat_submit",
+          caster: "k4",
+        },
+        {
+          name: "Copper ring",
+          category: "Ring",
+          img: "ring-solitaire",
+          estG: 6,
+          size: "18",
+          specs: "Plain band with top",
+          remarks: "Natural finish",
+          upTo: "ready",
+          caster: "k2",
+        },
+      ],
+    },
+    {
       customer: 6,
       type: "PIECE",
       title: "Solitaire ring (repeat)",
@@ -602,6 +687,8 @@ export function buildSeed(nowMs = Date.now()): DB {
   orders.forEach((os, oi) => {
     const start = nowMs - os.agoDays * DAY;
     const ctx = (ms: number, by = office[oi % 2]): Ctx => ({ now: iso(Math.min(ms, nowMs - 5 * 60e3)), by });
+    const metal = os.metal ?? "Gold";
+    const finalImg = (key: string) => (metal === "Gold" ? img(key, "final") : `/demo/${key}-final-${metal.toLowerCase()}.jpg`);
     let orderId = "";
     let pieces: Piece[] = [];
     events.push({
@@ -616,17 +703,19 @@ export function buildSeed(nowMs = Date.now()): DB {
             orderDate: iso(start),
             dueDate: iso(nowMs + os.dueInDays * DAY),
             priority: os.priority,
+            metal,
             remarks: os.remarks,
             photos: [{ url: img(os.pieces[0].img, "sketch"), caption: "Customer design reference", kind: "reference" }],
             pieces: os.pieces.map((p) => ({
               name: p.name,
               category: p.category,
-              purity: p.purity ?? "22K · 916",
+              purity: p.purity ?? DEFAULT_PURITY[metal],
               size: p.size,
               qty: p.qty ?? 1,
               specs: p.specs,
               stones: p.stones,
               estWeightMg: Math.round(p.estG * 1000),
+              valueRs: Math.round((p.estG * RATE[metal] * (p.purity?.startsWith("18K") ? 0.8 : 1)) / 100) * 100,
               remarks: p.remarks,
               photos: [{ url: img(p.img, "sketch"), caption: "Design sketch", kind: "design" }],
             })),
@@ -770,7 +859,7 @@ export function buildSeed(nowMs = Date.now()): DB {
                 ops.submitWork(
                   db,
                   wo,
-                  { weightMg: w, note: "All stones set and checked", photos: [{ url: img(ps.img, "final"), caption: "After stone setting" }] },
+                  { weightMg: w, note: "All stones set and checked", photos: [{ url: finalImg(ps.img), caption: "After stone setting" }] },
                   ctx(at, artisanName(setter)),
                 );
                 break;
@@ -805,7 +894,7 @@ export function buildSeed(nowMs = Date.now()): DB {
                     returnedWeightMg: w,
                     charges: 350,
                     remarks: "Received polished, checked under loupe",
-                    photos: [{ url: img(ps.img, "final"), caption: "After polishing" }],
+                    photos: [{ url: finalImg(ps.img), caption: "After polishing" }],
                   },
                   ctx(at),
                 );
@@ -817,7 +906,7 @@ export function buildSeed(nowMs = Date.now()): DB {
                   {
                     finalWeightMg: w,
                     remarks: "QC passed, hallmark done (HUID recorded)",
-                    photos: [{ url: img(ps.img, "final"), caption: "Final studio photo" }],
+                    photos: [{ url: finalImg(ps.img), caption: "Final studio photo" }],
                   },
                   ctx(at),
                 );
@@ -827,6 +916,34 @@ export function buildSeed(nowMs = Date.now()): DB {
         });
       }
     });
+
+    if (os.challan) {
+      const c = os.challan;
+      events.push({
+        t: nowMs - c.agoDays * DAY,
+        run: () => {
+          ops.createChallan(
+            db,
+            {
+              orderId,
+              date: iso(nowMs - c.agoDays * DAY),
+              items: c.pieces.map((i) => ({
+                pieceId: pieces[i].id,
+                weightMg: pieces[i].finalWeightMg ?? pieces[i].estWeightMg,
+                valueRs: pieces[i].valueRs ?? 0,
+              })),
+              mode: "Road transport",
+              vehicleNo: c.vehicleNo,
+              transporter: c.transporter,
+              fromPlace: "Bowbazar, Kolkata",
+              toPlace: db.customers.find((x) => x.id === C[os.customer])?.city ?? "",
+              remarks: "Sealed parcel, insured transit. Hand over against signature only.",
+            },
+            ctx(nowMs - c.agoDays * DAY),
+          );
+        },
+      });
+    }
 
     if (os.deliver) {
       const d = os.deliver;
@@ -842,7 +959,7 @@ export function buildSeed(nowMs = Date.now()): DB {
               mode: d.mode,
               receivedBy: d.receivedBy,
               remarks: "Delivered with bill and hallmark certificate. Customer satisfied.",
-              photos: [{ url: img(os.pieces[d.pieces[0]].img, "final"), caption: "Handover photo" }],
+              photos: [{ url: finalImg(os.pieces[d.pieces[0]].img), caption: "Handover photo" }],
             },
             ctx(nowMs - d.agoDays * DAY),
           );
@@ -862,5 +979,6 @@ export function buildSeed(nowMs = Date.now()): DB {
   db.workOrders.sort(byDate((w) => w.issuedAt));
   db.jobWorks.sort(byDate((j) => j.dispatchDate));
   db.deliveries.sort(byDate((d) => d.date));
+  db.challans.sort(byDate((c) => c.date));
   return db;
 }

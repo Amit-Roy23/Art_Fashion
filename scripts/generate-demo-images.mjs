@@ -179,6 +179,13 @@ const designs = {
   },
 };
 
+// Finished looks in other metals, used for silver and copper orders.
+const metalGradient = (stops) =>
+  `<linearGradient id="m" x1="0" y1="0" x2="1" y2="1">${stops.map((c, i) => `<stop offset="${i / (stops.length - 1)}" stop-color="${c}"/>`).join("")}</linearGradient>`;
+looks["final-silver"] = { ...looks.final, metal: metalGradient(["#5f6670", "#e9eef3", "#9aa3ad", "#ffffff", "#8a939d", "#4b525a"]) };
+looks["final-copper"] = { ...looks.final, metal: metalGradient(["#6b2f17", "#f2a37a", "#b8643a", "#ffd2b5", "#9a4b27", "#4f210f"]) };
+const METAL_VARIANTS = ["bangle", "chain", "bracelet", "pendant-sapphire", "ring-solitaire", "nath"];
+
 function svg(design, lookName, opts = {}) {
   const look = looks[lookName];
   const d = ctx(look);
@@ -215,7 +222,8 @@ export const PIECES = [
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: S, height: S } });
 for (const [name, design, opts] of PIECES) {
-  for (const look of ["final", "raw", "sketch"]) {
+  const extra = METAL_VARIANTS.includes(name) ? ["final-silver", "final-copper"] : [];
+  for (const look of ["final", "raw", "sketch", ...extra]) {
     await page.setContent(`<html><body style="margin:0">${svg(design, look, opts)}</body></html>`);
     await page.screenshot({ path: path.join(OUT, `${name}-${look}.jpg`), type: "jpeg", quality: 78, clip: { x: 0, y: 0, width: S, height: S } });
   }

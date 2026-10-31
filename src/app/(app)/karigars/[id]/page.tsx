@@ -7,8 +7,10 @@ import { useCan, useDB } from "@/lib/store";
 import { activityFor, artisanLoad, coverPhoto, pieceOf, stageOf, workCategory } from "@/lib/queries";
 import { date, g, gShort } from "@/lib/format";
 import { downloadPdf, sharePdf } from "@/lib/pdf-client";
-import { Avatar, Button, Empty, PageHeader, Panel, SectionTitle } from "@/components/ui";
-import { DueChip, Timeline, WeightDelta, WorkStatusPill } from "@/components/domain";
+import { Avatar, Button, Empty, PageHeader, Panel, SectionTitle, Segmented } from "@/components/ui";
+import { RegisterExport, RegisterTable } from "@/components/register";
+import { filterWork, workRegister, type WorkFilter } from "@/lib/registers";
+import { DueChip, Timeline, WorkStatusPill } from "@/components/domain";
 import { Thumb } from "@/components/photos";
 import { ArtisanDialog, IssueWorkDialog, ReviewDialog, StatusDialog } from "@/components/actions";
 
@@ -18,6 +20,7 @@ export default function KarigarDetail() {
   const canAssign = useCan("artisans.assign");
   const canReview = useCan("artisans.review");
   const [dlg, setDlg] = useState<null | "assign" | "edit" | { review: string } | { status: string }>(null);
+  const [filter, setFilter] = useState<WorkFilter>("all");
   const a = db.artisans.find((x) => x.id === id);
   if (!a)
     return (
@@ -27,6 +30,11 @@ export default function KarigarDetail() {
     );
   const l = artisanLoad(db, a.id);
   const all = db.workOrders.filter((w) => w.artisanId === a.id);
+  const register = workRegister(db, filterWork(db, all, filter), {
+    title: "Karigar Work Register",
+    fileName: `Work-register-${a.name.replace(/\s+/g, "-")}`,
+    subtitle: `${a.name} · ${a.speciality} · ${a.phone} · ${filter === "all" ? "all work orders" : filter + " work orders"}`,
+  });
   const d = typeof dlg === "object" && dlg ? dlg : null;
 
   return (
@@ -132,54 +140,24 @@ export default function KarigarDetail() {
         </Panel>
       )}
 
-      <div className="grid gap-6 xl:grid-cols-[1.5fr_1fr]">
-        <Panel className="p-5">
-          <SectionTitle kicker="All work orders" title="Work & weight register" />
-          <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-sm">
-              <thead>
-                <tr className="text-left text-[10px] font-bold uppercase tracking-widest text-faint">
-                  <th className="py-2">WO</th>
-                  <th>Piece</th>
-                  <th>Issued</th>
-                  <th>Issued wt</th>
-                  <th>Submitted wt</th>
-                  <th>Diff</th>
-                  <th>Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {all.map((w) => {
-                  const p = pieceOf(db, w.pieceId);
-                  return (
-                    <tr key={w.id} className="border-t border-line">
-                      <td className="py-2.5 font-semibold">{w.number}</td>
-                      <td>
-                        <Link href={`/pieces/${p?.id}`} className="hover:text-gold">
-                          {p?.name}
-                        </Link>
-                      </td>
-                      <td className="text-muted">{date(w.issuedAt)}</td>
-                      <td className="tabular">{g(w.issuedWeightMg)}</td>
-                      <td className="tabular">{g(w.submittedWeightMg)}</td>
-                      <td>
-                        <WeightDelta base={w.issuedWeightMg} value={w.submittedWeightMg} />
-                      </td>
-                      <td>
-                        <WorkStatusPill wo={w} />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </Panel>
-        <Panel className="p-5">
-          <SectionTitle kicker="Audit trail" title="Activity" />
-          <Timeline items={activityFor(db, { artisanId: a.id }).slice(0, 25)} dense />
-        </Panel>
-      </div>
+      <Panel className="mb-6 p-5">
+        <SectionTitle kicker="All work orders" title="Work & weight register" action={<RegisterExport spec={register} compact />} />
+        <Segmented
+          className="mb-3"
+          value={filter}
+          onChange={setFilter}
+          options={[
+            { value: "all", label: "All", count: all.length },
+            { value: "pending", label: "Pending", count: filterWork(db, all, "pending").length },
+            { value: "completed", label: "Completed", count: filterWork(db, all, "completed").length },
+          ]}
+        />
+        <RegisterTable spec={register} empty="No work orders in this view" />
+      </Panel>
+      <Panel className="p-5">
+        <SectionTitle kicker="Audit trail" title="Activity" />
+        <Timeline items={activityFor(db, { artisanId: a.id }).slice(0, 25)} dense />
+      </Panel>
 
       <IssueWorkDialog open={dlg === "assign"} onClose={() => setDlg(null)} artisanId={a.id} />
       <ArtisanDialog open={dlg === "edit"} onClose={() => setDlg(null)} artisan={a} />

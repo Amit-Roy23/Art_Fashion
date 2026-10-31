@@ -1,7 +1,7 @@
 // Pure business operations on the DB. They mutate the draft they are given:
 // the client store wraps them in immer, and the backend seed replays them on a
 // plain object to build a realistic history. No React / browser APIs here.
-import type { Activity, Artisan, Customer, DB, JobCategory, Order, OrderCategory, Photo, Piece, WorkCategory } from "./types";
+import type { Activity, Artisan, Challan, Customer, DB, JobCategory, Order, OrderCategory, Photo, Piece, Vendor, WorkCategory } from "./types";
 
 export interface Ctx {
   now: string;
@@ -115,6 +115,7 @@ export interface NewPiece {
   specs: string;
   stones?: string;
   estWeightMg: number;
+  valueRs?: number;
   remarks: string;
   photos: Partial<Photo>[];
 }
@@ -126,6 +127,7 @@ export interface NewOrder {
   orderDate: string;
   dueDate: string;
   priority: Order["priority"];
+  metal: string;
   remarks: string;
   photos: Partial<Photo>[];
   pieces: NewPiece[];
@@ -137,6 +139,7 @@ export function createOrder(db: DB, input: NewOrder, ctx: Ctx) {
   requireRemarks(input.remarks, "Order remarks");
   if (!input.pieces.length) throw new OpError("Add at least one piece");
   if (input.type === "PIECE" && input.pieces.length !== 1) throw new OpError("A piece-wise order has exactly one piece");
+  if (!db.settings.metals.some((m) => m.name === input.metal)) throw new OpError("Choose the metal for this order");
   input.pieces.forEach((p, i) => {
     if (!p.name.trim()) throw new OpError(`Piece ${i + 1}: name is required`);
     if (!(p.estWeightMg > 0)) throw new OpError(`Piece ${i + 1}: estimated weight is required`);
@@ -152,6 +155,7 @@ export function createOrder(db: DB, input: NewOrder, ctx: Ctx) {
     orderDate: input.orderDate,
     dueDate: input.dueDate,
     priority: input.priority,
+    metal: input.metal,
     statusId: statusByCategory(db.settings.orderStatuses, "NEW"),
     remarks: input.remarks.trim(),
     photos: stamp(input.photos, "reference", ctx),
@@ -172,6 +176,7 @@ export function createOrder(db: DB, input: NewOrder, ctx: Ctx) {
       specs: p.specs,
       stones: p.stones,
       estWeightMg: Math.round(p.estWeightMg),
+      valueRs: p.valueRs && p.valueRs > 0 ? Math.round(p.valueRs) : undefined,
       stageId: db.settings.stages[0]?.id ?? "",
       location: "OFFICE",
       photos: stamp(p.photos, "reference", ctx),
@@ -566,4 +571,57 @@ export function createDelivery(
   });
   syncOrder(db, o.id, ctx);
   return d.id;
+}
+
+// ---------------------------------------------------------------- delivery / road challan
+export function createChallan(db: DB, input: Omit<Challan, "id" | "number" | "customerId" | "createdBy">, ctx: Ctx) {
+  const o = get(db.orders, input.orderId, "Order");
+  if (!input.items.length) throw new OpError("Select at least one piece for the challan");
+  if (!input.toPlace.trim()) throw new OpError("Destination is required");
+  if (input.mode === "Road transport" && !input.vehicleNo?.trim()) throw new OpError("Vehicle number is required for road transport");
+  const r = requireRemarks(input.remarks);
+  input.items.forEach((i) => {
+    const p = get(db.pieces, i.pieceId, "Piece");
+    if (p.orderId !== o.id) throw new OpError(`${p.code} is not part of ${o.number}`);
+    if (!(i.weightMg > 0)) throw new OpError(`${p.code}: weight is required`);
+    if (!(i.valueRs >= 0)) throw new OpError(`${p.code}: value is required`);
+  });
+  const c: Challan = {
+    ...input,
+    id: uid("dc"),
+    number: nextNumber(db, "challan", "DC", ctx.now),
+    customerId: o.customerId,
+    items: input.items.map((i) => ({ pieceId: i.pieceId, weightMg: Math.round(i.weightMg), valueRs: Math.round(i.valueRs) })),
+    remarks: r,
+    createdBy: ctx.by,
+  };
+  db.challans.unshift(c);
+  const total = c.items.reduce((s, i) => s + i.valueRs, 0);
+  log(db, ctx, {
+    icon: "challan",
+    text: `${c.mode === "Road transport" ? "Road" : "Delivery"} challan ${c.number} for ${o.number} · ${c.items.length} piece${c.items.length > 1 ? "s" : ""} · ₹${total.toLocaleString("en-IN")}`,
+    remarks: r,
+    orderId: o.id,
+    pieceIds: c.items.map((i) => i.pieceId),
+    weightMg: c.items.reduce((s, i) => s + i.weightMg, 0),
+  });
+  return c.id;
+}
+
+// ---------------------------------------------------------------- vendors (outside job workers)
+export function saveVendor(db: DB, input: Omit<Vendor, "id"> & { id?: string }) {
+  if (!input.name.trim()) throw new OpError("Vendor name is required");
+  if (!input.processes.length) throw new OpError("Select at least one process this vendor does");
+  if (input.id) {
+    Object.assign(get(db.settings.vendors, input.id, "Vendor"), input);
+    return input.id;
+  }
+  const v: Vendor = { ...input, name: input.name.trim(), id: uid("v") };
+  db.settings.vendors.push(v);
+  return v.id;
+}
+
+export function deleteVendor(db: DB, id: string) {
+  if (db.jobWorks.some((j) => j.vendorId === id)) throw new OpError("This vendor has job work history — it cannot be deleted");
+  db.settings.vendors = db.settings.vendors.filter((v) => v.id !== id);
 }

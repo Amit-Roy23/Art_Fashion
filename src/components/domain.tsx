@@ -19,6 +19,7 @@ import {
   Undo2,
   Workflow,
   BadgeCheck,
+  ScrollText,
 } from "lucide-react";
 import { useDB } from "@/lib/store";
 import type { Activity, JobWork, Order, Piece, WorkOrder } from "@/lib/types";
@@ -254,6 +255,7 @@ const ICONS: Record<Activity["icon"], { icon: typeof Send; color: string }> = {
   jobout: { icon: Sparkles, color: "var(--gold)" },
   jobin: { icon: RefreshCcw, color: "var(--gold)" },
   deliver: { icon: Truck, color: "var(--ok)" },
+  challan: { icon: ScrollText, color: "var(--info)" },
   status: { icon: Workflow, color: "#c084fc" },
   photo: { icon: Camera, color: "var(--rose)" },
   stage: { icon: Workflow, color: "#fb923c" },
@@ -322,4 +324,28 @@ export function WeightDelta({ base, value }: { base?: number; value?: number }) 
       {d.label} · {d.pct.toFixed(2)}%
     </span>
   );
+}
+
+// ─────────────────────────────────────────────── metal
+const METAL_COLORS: Record<string, [string, string]> = {
+  Gold: ["#f8dfa2", "#a8772b"],
+  Silver: ["#f3f6f9", "#8a939d"],
+  Copper: ["#ffc7a6", "#9a4b27"],
+};
+export const metalColor = (metal?: string) => METAL_COLORS[metal ?? ""]?.[1] ?? "var(--muted)";
+
+export function MetalSwatch({ metal, size = 28 }: { metal: string; size?: number }) {
+  const [a, b] = METAL_COLORS[metal] ?? ["#d6d3d1", "#57534e"];
+  return (
+    <span
+      className="inline-block shrink-0 rounded-full shadow-inner ring-1 ring-black/20"
+      style={{ width: size, height: size, background: `radial-gradient(circle at 30% 30%, ${a}, ${b})` }}
+      aria-hidden
+    />
+  );
+}
+
+export function MetalPill({ metal }: { metal?: string }) {
+  if (!metal) return null;
+  return <Pill color={metalColor(metal)}>{metal}</Pill>;
 }
