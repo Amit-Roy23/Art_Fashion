@@ -7,6 +7,7 @@ import { resetDemo, run, useCan, useDB } from "@/lib/store";
 import type { DB, Stage, StatusOption } from "@/lib/types";
 import { cn } from "@/lib/format";
 import { Button, Empty, Field, Input, Modal, PageHeader, Panel, SectionTitle, Segmented, Select } from "@/components/ui";
+import { MetalSwatch } from "@/components/domain";
 
 const SWATCHES = ["#a78bfa", "#60a5fa", "#38bdf8", "#2dd4bf", "#34d399", "#facc15", "#f59e0b", "#fb923c", "#f87171", "#f472b6", "#c084fc", "#9ca3af"];
 
@@ -233,13 +234,21 @@ function StatusEditor({ db }: { db: DB }) {
 }
 
 function ChipList({ title, icon, items, onChange }: { title: string; icon: React.ReactNode; items: string[]; onChange: (v: string[]) => void }) {
-  const [v, setV] = useState("");
   return (
     <Panel className="p-5">
       <div className="mb-3 flex items-center gap-2 font-semibold">
         <span className="text-gold">{icon}</span>
         {title}
       </div>
+      <ChipEditor items={items} onChange={onChange} />
+    </Panel>
+  );
+}
+
+function ChipEditor({ items, onChange, placeholder = "Add…" }: { items: string[]; onChange: (v: string[]) => void; placeholder?: string }) {
+  const [v, setV] = useState("");
+  return (
+    <>
       <div className="mb-3 flex flex-wrap gap-1.5">
         {items.map((x) => (
           <span key={x} className="inline-flex items-center gap-1 rounded-full border border-line-2 bg-panel px-3 py-1 text-xs">
@@ -260,121 +269,91 @@ function ChipList({ title, icon, items, onChange }: { title: string; icon: React
           }
         }}
       >
-        <Input value={v} onChange={(e) => setV(e.target.value)} placeholder="Add…" />
+        <Input value={v} onChange={(e) => setV(e.target.value)} placeholder={placeholder} />
         <Button type="submit" variant="soft">
           <Plus className="size-4" />
         </Button>
       </form>
-    </Panel>
+    </>
   );
 }
 
 function Masters({ db }: { db: DB }) {
-  const [vendor, setVendor] = useState(false);
-  const [vf, setVf] = useState({ name: "", phone: "", city: "", processes: [] as string[] });
-  const set = (k: "categories" | "purities" | "processes") => (v: string[]) => run((d) => void (d.settings[k] = v), "Saved");
+  const [metal, setMetal] = useState("");
+  const set = (k: "categories" | "processes") => (v: string[]) => run((d) => void (d.settings[k] = v), "Saved");
+  const setPurities = (name: string) => (v: string[]) =>
+    run((d) => {
+      if (!v.length) throw new OpError("Keep at least one purity for each metal");
+      d.settings.metals.find((m) => m.name === name)!.purities = v;
+    }, "Saved");
+  const removeMetal = (name: string) =>
+    run((d) => {
+      if (d.orders.some((o) => o.metal === name)) throw new OpError(`Orders use ${name} — it cannot be removed`);
+      if (d.settings.metals.length <= 1) throw new OpError("Keep at least one metal");
+      d.settings.metals = d.settings.metals.filter((m) => m.name !== name);
+    }, "Metal removed");
   return (
-    <div className="grid gap-5 lg:grid-cols-3">
-      <ChipList title="Jewellery categories" icon={<Tags className="size-4" />} items={db.settings.categories} onChange={set("categories")} />
-      <ChipList title="Gold purities" icon={<Scale className="size-4" />} items={db.settings.purities} onChange={set("purities")} />
-      <ChipList title="Outside processes" icon={<Layers className="size-4" />} items={db.settings.processes} onChange={set("processes")} />
-      <Panel className="p-5 lg:col-span-3">
+    <div className="grid gap-5 lg:grid-cols-2">
+      <Panel className="p-5 lg:col-span-2">
         <SectionTitle
-          kicker="Job workers"
-          title="Vendors"
-          action={
-            <Button
-              size="sm"
-              variant="gold"
-              icon={<Plus className="size-3.5" />}
-              onClick={() => {
-                setVf({ name: "", phone: "", city: "", processes: [] });
-                setVendor(true);
-              }}
-            >
-              Add vendor
-            </Button>
+          kicker="Order metals"
+          title={
+            <span className="flex items-center gap-2">
+              <Scale className="size-5 text-gold" />
+              Metals & purities
+            </span>
           }
         />
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {db.settings.vendors.map((v) => (
-            <div key={v.id} className="rounded-2xl border border-line bg-panel p-4">
-              <div className="flex items-start justify-between gap-2">
-                <div className="font-semibold">{v.name}</div>
-                <button
-                  aria-label="Delete vendor"
-                  onClick={() =>
-                    run((d) => {
-                      if (d.jobWorks.some((j) => j.vendorId === v.id && !j.returnedAt)) throw new OpError("This vendor has pieces out");
-                      d.settings.vendors = d.settings.vendors.filter((x) => x.id !== v.id);
-                    }, "Vendor removed")
-                  }
-                  className="text-faint hover:text-danger"
-                >
+        <p className="mb-4 text-sm text-muted">
+          Each order is booked in one metal; its pieces pick a purity from that metal&apos;s list. Dashboard totals are shown metal-wise.
+        </p>
+        <div className="grid gap-3 md:grid-cols-3">
+          {db.settings.metals.map((m) => (
+            <div key={m.name} className="rounded-2xl border border-line bg-panel p-4">
+              <div className="mb-3 flex items-center gap-2.5">
+                <MetalSwatch metal={m.name} size={24} />
+                <span className="flex-1 font-semibold">{m.name}</span>
+                <button aria-label={`Remove ${m.name}`} onClick={() => removeMetal(m.name)} className="text-faint hover:text-danger">
                   <Trash2 className="size-4" />
                 </button>
               </div>
-              <div className="text-xs text-muted">
-                {v.city} · {v.phone}
-              </div>
-              <div className="mt-2 flex flex-wrap gap-1">
-                {v.processes.map((p) => (
-                  <span key={p} className="rounded-full bg-gold/10 px-2 py-0.5 text-[10px] font-semibold text-gold">
-                    {p}
-                  </span>
-                ))}
-              </div>
+              <ChipEditor items={m.purities} onChange={setPurities(m.name)} placeholder="Add purity…" />
             </div>
           ))}
         </div>
-      </Panel>
-      <Modal
-        open={vendor}
-        onClose={() => setVendor(false)}
-        title="Add vendor"
-        icon={<Truck className="size-5" />}
-        footer={
-          <Button
-            variant="gold"
-            onClick={() => {
-              if (!vf.name.trim()) return toast.error("Name is required");
-              if (run((d) => void d.settings.vendors.push({ id: uid("v"), ...vf }), "Vendor added")) setVendor(false);
-            }}
-          >
-            Save vendor
+        <form
+          className="mt-4 flex max-w-sm gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const n = metal.trim();
+            if (!n) return;
+            if (
+              run((d) => {
+                if (d.settings.metals.some((x) => x.name.toLowerCase() === n.toLowerCase())) throw new OpError(`${n} already exists`);
+                d.settings.metals.push({ name: n, purities: ["Standard"] });
+              }, "Metal added")
+            )
+              setMetal("");
+          }}
+        >
+          <Input value={metal} onChange={(e) => setMetal(e.target.value)} placeholder="Add a metal, e.g. Platinum" />
+          <Button type="submit" variant="soft">
+            <Plus className="size-4" />
           </Button>
-        }
-      >
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Name" required className="sm:col-span-2">
-            <Input value={vf.name} onChange={(e) => setVf({ ...vf, name: e.target.value })} />
-          </Field>
-          <Field label="Phone">
-            <Input value={vf.phone} onChange={(e) => setVf({ ...vf, phone: e.target.value })} />
-          </Field>
-          <Field label="Area">
-            <Input value={vf.city} onChange={(e) => setVf({ ...vf, city: e.target.value })} />
-          </Field>
-          <div className="sm:col-span-2">
-            <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[.14em] text-muted">Processes</div>
-            <div className="flex flex-wrap gap-1.5">
-              {db.settings.processes.map((p) => {
-                const on = vf.processes.includes(p);
-                return (
-                  <button
-                    key={p}
-                    type="button"
-                    onClick={() => setVf({ ...vf, processes: on ? vf.processes.filter((x) => x !== p) : [...vf.processes, p] })}
-                    className={cn("rounded-full border px-3 py-1 text-xs", on ? "gold-fill border-transparent" : "border-line text-muted")}
-                  >
-                    {p}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+        </form>
+      </Panel>
+      <ChipList title="Jewellery categories" icon={<Tags className="size-4" />} items={db.settings.categories} onChange={set("categories")} />
+      <ChipList title="Outside processes" icon={<Layers className="size-4" />} items={db.settings.processes} onChange={set("processes")} />
+      <Panel className="flex items-center gap-4 p-5 lg:col-span-2">
+        <Truck className="size-6 text-gold" />
+        <div className="flex-1">
+          <div className="font-semibold">Vendors (outside job workers)</div>
+          <div className="text-sm text-muted">Vendors now have their own page with a vendor-wise work register.</div>
         </div>
-      </Modal>
+        <Button variant="soft" href="/vendors">
+          Open vendors
+        </Button>
+      </Panel>
     </div>
   );
 }

@@ -119,4 +119,22 @@ export function artisanLoad(db: DB, artisanId: string) {
   return { open, submitted, overdue, metalOutMg, done, lossMg };
 }
 
+/** Weight of a piece as best known now: final, else last measured, else estimate. */
+export const liveWeight = (p: Piece) => p.finalWeightMg ?? p.currentWeightMg ?? p.estWeightMg;
+
+/** Running (open, undelivered) work per metal, in the order metals are configured. */
+export function runningByMetal(db: DB) {
+  return db.settings.metals.map((m) => {
+    const orders = db.orders.filter((o) => o.metal === m.name && isOrderOpen(db, o));
+    const pieces = orders.flatMap((o) => piecesOf(db, o.id)).filter((p) => p.location !== "DELIVERED");
+    return {
+      metal: m.name,
+      orders: orders.length,
+      pieces: pieces.length,
+      weightMg: pieces.reduce((s, p) => s + liveWeight(p), 0),
+      valueRs: pieces.reduce((s, p) => s + (p.valueRs ?? 0), 0),
+    };
+  });
+}
+
 export { jobCategory, workCategory, orderCategory };

@@ -1,29 +1,38 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
-import { Download, PackageCheck, Share2, Truck } from "lucide-react";
+import { Download, PackageCheck, ScrollText, Share2, Truck } from "lucide-react";
 import { useCan, useDB } from "@/lib/store";
 import { coverPhoto, customerOf, orderOf, pieceOf, piecesOf } from "@/lib/queries";
-import { date, g } from "@/lib/format";
+import { date, g, inr } from "@/lib/format";
 import { downloadPdf, sharePdf } from "@/lib/pdf-client";
 import { Button, Empty, PageHeader, Panel, SectionTitle, Select } from "@/components/ui";
 import { DueChip } from "@/components/domain";
 import { Thumb } from "@/components/photos";
-import { DeliveryDialog } from "@/components/actions";
+import { ChallanDialog, DeliveryDialog } from "@/components/actions";
 
 export default function DeliveriesPage() {
   const db = useDB();
   const can = useCan("delivery.create");
   const [deliver, setDeliver] = useState<string | null>(null);
+  const [challan, setChallan] = useState(false);
   const [cust, setCust] = useState("");
   const readyOrders = db.orders.filter((o) => piecesOf(db, o.id).some((p) => p.location === "READY"));
   const dels = db.deliveries.filter((d) => !cust || d.customerId === cust);
+  const challans = db.challans.filter((c) => !cust || c.customerId === cust);
   return (
     <div>
       <PageHeader
         kicker="Dispatch"
         title="Customer deliveries"
-        sub="Ready pieces waiting for handover, and the complete customer-wise delivery register with notes and photos."
+        sub="Ready pieces waiting for handover, delivery / road challans with weight and value, and the customer-wise delivery register."
+        actions={
+          can && (
+            <Button variant="gold" icon={<ScrollText className="size-4" />} onClick={() => setChallan(true)}>
+              New delivery challan
+            </Button>
+          )
+        }
       />
       <SectionTitle kicker={`${readyOrders.length} orders`} title="Ready for handover" />
       {readyOrders.length ? (
@@ -68,6 +77,67 @@ export default function DeliveriesPage() {
           <Empty icon={<PackageCheck className="size-7" />} title="Nothing waiting" sub="Pieces appear here after QC." />
         </Panel>
       )}
+
+      <SectionTitle kicker="Goods out" title="Delivery / road challans" />
+      <Panel className="mb-8 overflow-x-auto">
+        <table className="w-full min-w-[860px] text-sm">
+          <thead>
+            <tr className="border-b border-line text-left text-[10px] font-bold uppercase tracking-widest text-faint">
+              <th className="p-4">Challan</th>
+              <th>Customer</th>
+              <th>Order</th>
+              <th>Date</th>
+              <th>Mode / vehicle</th>
+              <th className="text-right">Weight</th>
+              <th className="text-right">Value</th>
+              <th />
+            </tr>
+          </thead>
+          <tbody>
+            {challans.map((c) => {
+              const cu = customerOf(db, c.customerId);
+              const o = orderOf(db, c.orderId);
+              return (
+                <tr key={c.id} className="border-b border-line last:border-0 hover:bg-panel">
+                  <td className="p-4 font-semibold">{c.number}</td>
+                  <td>{cu?.name}</td>
+                  <td>
+                    <Link href={`/orders/${o?.id}`} className="text-muted hover:text-gold">
+                      {o?.number}
+                    </Link>
+                  </td>
+                  <td>{date(c.date)}</td>
+                  <td className="text-muted">
+                    {c.mode}
+                    {c.vehicleNo ? ` · ${c.vehicleNo}` : ""}
+                  </td>
+                  <td className="tabular text-right">{g(c.items.reduce((s, i) => s + i.weightMg, 0))}</td>
+                  <td className="tabular text-right">{inr(c.items.reduce((s, i) => s + i.valueRs, 0))}</td>
+                  <td className="pr-3 text-right whitespace-nowrap">
+                    <Button size="sm" variant="ghost" icon={<Download className="size-3.5" />} onClick={() => downloadPdf("delivery-challan", c.id)}>
+                      PDF
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      aria-label="Share challan"
+                      icon={<Share2 className="size-3.5" />}
+                      onClick={() => sharePdf("delivery-challan", c.id, cu?.phone, `Delivery challan ${c.number} from ${db.settings.company.name}`)}
+                    />
+                  </td>
+                </tr>
+              );
+            })}
+            {!challans.length && (
+              <tr>
+                <td colSpan={8} className="p-8 text-center text-faint">
+                  No challans yet — create one from an order or with “New delivery challan”.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </Panel>
 
       <SectionTitle
         kicker="History"
@@ -152,6 +222,7 @@ export default function DeliveriesPage() {
         </table>
       </Panel>
       <DeliveryDialog open={!!deliver} onClose={() => setDeliver(null)} orderId={deliver ?? undefined} />
+      <ChallanDialog open={challan} onClose={() => setChallan(false)} />
     </div>
   );
 }

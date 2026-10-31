@@ -20,6 +20,7 @@ import {
   Settings2,
   Sparkles,
   Sun,
+  Store,
   Truck,
   Users,
   Repeat,
@@ -55,6 +56,7 @@ export const NAV = [
       { href: "/karigars", label: "Karigars", icon: Hammer },
       { href: "/work-orders", label: "Work orders", icon: FileText },
       { href: "/job-work", label: "Outside job work", icon: Sparkles },
+      { href: "/vendors", label: "Vendors", icon: Store },
     ],
   },
   {

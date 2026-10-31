@@ -20,10 +20,10 @@ import {
 import { startOfWeek, subWeeks, format } from "date-fns";
 import { useDB, useUser } from "@/lib/store";
 import { useChartColors } from "@/lib/theme";
-import { artisanLoad, coverPhoto, customerOf, orderCat, orderOf, pieceOf, piecesOf, stageOf, vendorOf, workCategory } from "@/lib/queries";
-import { cn, dateShort, daysLeft, g, gShort } from "@/lib/format";
+import { artisanLoad, runningByMetal, coverPhoto, customerOf, orderCat, orderOf, pieceOf, piecesOf, stageOf, vendorOf, workCategory } from "@/lib/queries";
+import { cn, dateShort, daysLeft, g, gShort, inr } from "@/lib/format";
 import { Avatar, Button, Panel, Ring, SectionTitle, Tone } from "@/components/ui";
-import { DueChip, OrderStatusPill, PriorityBadge, Timeline, WeightDelta } from "@/components/domain";
+import { DueChip, MetalSwatch, OrderStatusPill, PriorityBadge, Timeline, WeightDelta } from "@/components/domain";
 import { Thumb, useLightbox } from "@/components/photos";
 import { DeliveryDialog, IssueWorkDialog, ReviewDialog, SendJobDialog } from "@/components/actions";
 
@@ -77,7 +77,7 @@ export default function Dashboard() {
 
   const hour = new Date().getHours();
   const greet = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
-  const metalOut = db.artisans.reduce((s, a) => s + artisanLoad(db, a.id).metalOutMg, 0) + openJobs.reduce((s, j) => s + j.sentWeightMg, 0);
+  const byMetal = runningByMetal(db);
 
   return (
     <div className="space-y-6">
@@ -94,9 +94,6 @@ export default function Dashboard() {
               <b className="text-text">{submissions.length}</b> submissions await review, <b className="text-text">{overdueWO.length}</b> karigar jobs are
               overdue, <b className="text-text">{openJobs.length}</b> pieces are out for job work and <b className="text-text">{readyPieces.length}</b> are
               ready to deliver.
-              <span className="mt-1 block">
-                Metal out of the vault right now: <b className="gold-text tabular">{g(metalOut)}</b>
-              </span>
             </p>
           </div>
           <div className="grid shrink-0 grid-cols-2 gap-2 sm:max-w-md xl:w-[360px]">
@@ -112,6 +109,28 @@ export default function Dashboard() {
             <Button variant="soft" icon={<Truck className="size-4" />} onClick={() => setDlg("deliver")}>
               Deliver
             </Button>
+          </div>
+        </div>
+        <div className="relative mt-6">
+          <div className="mb-2 text-[10px] font-bold uppercase tracking-[.22em] text-muted">Running orders · weight by metal</div>
+          <div className="grid gap-2 sm:grid-cols-3">
+            {byMetal.map((m) => (
+              <Link
+                key={m.metal}
+                href={`/orders?metal=${encodeURIComponent(m.metal)}`}
+                className="flex items-center gap-3 rounded-2xl border border-line bg-panel p-3 transition hover:border-gold/40"
+              >
+                <MetalSwatch metal={m.metal} size={34} />
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-semibold text-muted">{m.metal}</div>
+                  <div className="font-display tabular text-2xl font-semibold whitespace-nowrap">{g(m.weightMg)}</div>
+                  <div className="truncate text-[11px] text-faint">
+                    {m.orders} order{m.orders === 1 ? "" : "s"} · {m.pieces} piece{m.pieces === 1 ? "" : "s"}
+                    {m.valueRs ? ` · ${inr(m.valueRs)}` : ""}
+                  </div>
+                </div>
+              </Link>
+            ))}
           </div>
         </div>
       </Panel>

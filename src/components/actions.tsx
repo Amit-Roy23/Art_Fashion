@@ -11,6 +11,7 @@ import {
   MessageSquareText,
   PackageCheck,
   RefreshCcw,
+  ScrollText,
   Send,
   Share2,
   Sparkles,
@@ -21,9 +22,9 @@ import {
 } from "lucide-react";
 import * as ops from "@/lib/ops";
 import { act, run, useDB } from "@/lib/store";
-import type { Artisan, Customer, Piece } from "@/lib/types";
+import type { Artisan, Customer, Piece, Vendor } from "@/lib/types";
 import { activeJW, activeWO, artisanLoad, artisanOf, customerOf, orderOf, pieceOf, piecesOf, stageOf, vendorOf } from "@/lib/queries";
-import { cn, diff, fromInputDate, g, inputDate, toMg } from "@/lib/format";
+import { cn, diff, fromInputDate, g, inputDate, inr, toMg } from "@/lib/format";
 import { downloadPdf, sharePdf, type DocKind } from "@/lib/pdf-client";
 import { Avatar, Button, Field, Input, Modal, Select, Textarea } from "./ui";
 import { PhotoGrid, PhotoInput, type DraftPhoto } from "./photos";
@@ -597,13 +598,13 @@ function SubmitWorkBody({ open, onClose, woId }: { open: boolean; onClose: () =>
 }
 
 // ─────────────────────────────────────────────── outside job work
-function SendJobBody({ open, onClose, pieceId: fixedPiece }: { open: boolean; onClose: () => void; pieceId?: string }) {
+function SendJobBody({ open, onClose, pieceId: fixedPiece, vendorId }: { open: boolean; onClose: () => void; pieceId?: string; vendorId?: string }) {
   const db = useDB();
   const eligible = db.pieces.filter((p) => p.location === "OFFICE");
   const jobStages = db.settings.stages.filter((s) => s.handledBy === "JOBWORK");
   const [f, setF] = useState(() => {
     const p = pieceOf(db, fixedPiece ?? "");
-    const v = db.settings.vendors[0];
+    const v = db.settings.vendors.find((x) => x.id === vendorId) ?? db.settings.vendors[0];
     return {
       pieceId: fixedPiece ?? "",
       vendorId: v?.id ?? "",
@@ -1177,6 +1178,272 @@ function ArtisanBody({ open, onClose, artisan }: { open: boolean; onClose: () =>
   );
 }
 
+// ─────────────────────────────────────────────── delivery / road challan
+function ChallanBody({ onClose, orderId: fixedOrder }: { open: boolean; onClose: () => void; orderId?: string }) {
+  const db = useDB();
+  const openOrders = db.orders.filter((o) => piecesOf(db, o.id).some((p) => p.location !== "DELIVERED"));
+  const defaultsFor = (orderId: string) => {
+    const ps = piecesOf(db, orderId);
+    const ready = ps.filter((p) => p.location === "READY");
+    const pick = ready.length ? ready : ps.filter((p) => p.location !== "DELIVERED");
+    return Object.fromEntries(
+      ps.map((p) => [
+        p.id,
+        { on: pick.includes(p), weight: ((p.finalWeightMg ?? p.currentWeightMg ?? p.estWeightMg) / 1000).toFixed(3), value: String(p.valueRs ?? "") },
+      ]),
+    ) as Record<string, { on: boolean; weight: string; value: string }>;
+  };
+  const toPlaceOf = (orderId: string) => {
+    const o = orderOf(db, orderId);
+    return o ? (customerOf(db, o.customerId)?.city ?? "") : "";
+  };
+  const [orderId, setOrderId] = useState(fixedOrder ?? "");
+  const [items, setItems] = useState(() => (fixedOrder ? defaultsFor(fixedOrder) : {}));
+  const [f, setF] = useState(() => ({
+    date: inputDate(),
+    mode: "Road transport" as "By hand" | "Road transport" | "Courier",
+    vehicleNo: "",
+    transporter: "",
+    fromPlace: db.settings.company.address.split(",").slice(-2).join(",").trim(),
+    toPlace: fixedOrder ? toPlaceOf(fixedOrder) : "",
+    remarks: "",
+  }));
+  const [done, setDone] = useState<string | null>(null);
+  const order = orderOf(db, orderId);
+  const customer = order && customerOf(db, order.customerId);
+  const pieces = order ? piecesOf(db, order.id) : [];
+  const chosen = pieces.filter((p) => items[p.id]?.on);
+  const totalMg = chosen.reduce((s, p) => s + toMg(items[p.id].weight), 0);
+  const totalRs = chosen.reduce((s, p) => s + (+items[p.id].value || 0), 0);
+  const pick = (id: string) => {
+    setOrderId(id);
+    setItems(id ? defaultsFor(id) : {});
+    setF((x) => ({ ...x, toPlace: toPlaceOf(id) }));
+  };
+  const setItem = (id: string, patch: Partial<{ on: boolean; weight: string; value: string }>) => setItems({ ...items, [id]: { ...items[id], ...patch } });
+  const submit = () => {
+    const id = act(
+      (d, ctx) =>
+        ops.createChallan(
+          d,
+          {
+            orderId,
+            date: fromInputDate(f.date),
+            items: chosen.map((p) => ({ pieceId: p.id, weightMg: toMg(items[p.id].weight), valueRs: +items[p.id].value || 0 })),
+            mode: f.mode,
+            vehicleNo: f.vehicleNo || undefined,
+            transporter: f.transporter || undefined,
+            fromPlace: f.fromPlace,
+            toPlace: f.toPlace,
+            remarks: f.remarks,
+          },
+          ctx,
+        ),
+      "Challan created",
+    );
+    if (id) setDone(id);
+  };
+  const ch = done ? db.challans.find((x) => x.id === done) : undefined;
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={done ? "Challan ready" : "Delivery / road challan"}
+      sub={done ? undefined : "Goods leaving the premises — items with weight and value, plus transport details."}
+      icon={<ScrollText className="size-5" />}
+      wide
+      footer={
+        !done && (
+          <>
+            <span className="mr-auto text-sm text-muted">
+              {chosen.length} item{chosen.length === 1 ? "" : "s"} · <b className="tabular text-text">{g(totalMg)}</b> ·{" "}
+              <b className="tabular text-text">{inr(totalRs)}</b>
+            </span>
+            <Button variant="gold" icon={<ScrollText className="size-4" />} onClick={submit} disabled={!chosen.length}>
+              Create challan
+            </Button>
+          </>
+        )
+      }
+    >
+      {done && ch ? (
+        <DocDone
+          kind="delivery-challan"
+          id={ch.id}
+          title={ch.number}
+          sub={`${ch.items.length} item(s) · ${g(ch.items.reduce((s, i) => s + i.weightMg, 0))} · ${inr(ch.items.reduce((s, i) => s + i.valueRs, 0))}`}
+          phone={customer?.phone}
+          shareText={`Delivery challan ${ch.number} for order ${order?.number} from ${db.settings.company.name}.`}
+          onClose={onClose}
+        />
+      ) : (
+        <div className="space-y-4">
+          {!fixedOrder && (
+            <Field label="Order" required>
+              <Select value={orderId} onChange={(e) => pick(e.target.value)}>
+                <option value="">Select an order…</option>
+                {openOrders.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.number} · {o.title} — {customerOf(db, o.customerId)?.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+          )}
+          {order && (
+            <div>
+              <div className="mb-2 text-[11px] font-bold uppercase tracking-[.14em] text-muted">Items, weight & value</div>
+              <div className="space-y-2">
+                {pieces.map((p) => {
+                  const it = items[p.id];
+                  const cover = [...p.photos].reverse().find((x) => x.kind === "final") ?? p.photos.at(-1);
+                  return (
+                    <div
+                      key={p.id}
+                      className={cn("flex flex-wrap items-center gap-3 rounded-xl border p-2", it?.on ? "border-gold/60 bg-gold/5" : "border-line bg-panel")}
+                    >
+                      <label className="flex min-w-0 flex-1 basis-56 cursor-pointer items-center gap-3">
+                        <input
+                          type="checkbox"
+                          checked={!!it?.on}
+                          onChange={(e) => setItem(p.id, { on: e.target.checked })}
+                          className="size-4 accent-[var(--gold)]"
+                        />
+                        {cover && <img src={cover.url} alt="" className="size-11 rounded-lg object-cover" />}
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-semibold">{p.name}</span>
+                          <span className="block truncate text-[11px] text-muted">
+                            {p.code} · {p.purity} · {p.location === "READY" ? "Ready" : p.location === "DELIVERED" ? "Delivered" : "In production"}
+                          </span>
+                        </span>
+                      </label>
+                      {it?.on && (
+                        <div className="grid w-full grid-cols-2 gap-2 sm:w-64">
+                          <div className="relative">
+                            <Input
+                              type="number"
+                              step="0.001"
+                              inputMode="decimal"
+                              value={it.weight}
+                              onChange={(e) => setItem(p.id, { weight: e.target.value })}
+                              className="tabular pr-7"
+                              aria-label="Weight in grams"
+                            />
+                            <span className="absolute top-1/2 right-3 -translate-y-1/2 text-xs text-faint">g</span>
+                          </div>
+                          <div className="relative">
+                            <span className="absolute top-1/2 left-3 -translate-y-1/2 text-xs text-faint">₹</span>
+                            <Input
+                              type="number"
+                              min="0"
+                              inputMode="numeric"
+                              value={it.value}
+                              onChange={(e) => setItem(p.id, { value: e.target.value })}
+                              className="tabular pl-6"
+                              aria-label="Value in rupees"
+                              placeholder="Value"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Field label="Challan date" required>
+              <Input type="date" value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} />
+            </Field>
+            <Field label="Mode" required>
+              <Select value={f.mode} onChange={(e) => setF({ ...f, mode: e.target.value as typeof f.mode })}>
+                <option>Road transport</option>
+                <option>By hand</option>
+                <option>Courier</option>
+              </Select>
+            </Field>
+            <Field label="Vehicle no." required={f.mode === "Road transport"}>
+              <Input value={f.vehicleNo} onChange={(e) => setF({ ...f, vehicleNo: e.target.value.toUpperCase() })} placeholder="WB 02 AB 1234" />
+            </Field>
+            <Field label={f.mode === "Courier" ? "Courier / AWB" : "Transporter / carried by"}>
+              <Input value={f.transporter} onChange={(e) => setF({ ...f, transporter: e.target.value })} />
+            </Field>
+            <Field label="From" required>
+              <Input value={f.fromPlace} onChange={(e) => setF({ ...f, fromPlace: e.target.value })} />
+            </Field>
+            <Field label="To" required>
+              <Input value={f.toPlace} onChange={(e) => setF({ ...f, toPlace: e.target.value })} />
+            </Field>
+          </div>
+          <RemarksField
+            value={f.remarks}
+            onChange={(v) => setF({ ...f, remarks: v })}
+            chips={["Sealed parcel", "Insured transit", "Hand over against signature", "Goods not for sale"]}
+          />
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+// ─────────────────────────────────────────────── vendor (outside job worker)
+function VendorBody({ onClose, vendor }: { open: boolean; onClose: () => void; vendor?: Vendor }) {
+  const db = useDB();
+  const [f, setF] = useState(
+    vendor
+      ? { name: vendor.name, phone: vendor.phone, city: vendor.city, processes: vendor.processes }
+      : { name: "", phone: "", city: "", processes: [] as string[] },
+  );
+  const save = () => run((d) => void ops.saveVendor(d, { ...f, id: vendor?.id }), vendor ? "Vendor updated" : "Vendor added") && onClose();
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={vendor ? "Edit vendor" : "Add vendor"}
+      sub="Outside job worker for polishing, plating, hallmarking…"
+      icon={<Truck className="size-5" />}
+      footer={
+        <Button variant="gold" onClick={save}>
+          Save vendor
+        </Button>
+      }
+    >
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Name" required className="sm:col-span-2">
+          <Input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} autoFocus />
+        </Field>
+        <Field label="Phone">
+          <Input inputMode="tel" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} />
+        </Field>
+        <Field label="Area / city">
+          <Input value={f.city} onChange={(e) => setF({ ...f, city: e.target.value })} />
+        </Field>
+        <div className="sm:col-span-2">
+          <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[.14em] text-muted">
+            Processes <span className="text-gold">*</span>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {db.settings.processes.map((p) => {
+              const on = f.processes.includes(p);
+              return (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setF({ ...f, processes: on ? f.processes.filter((x) => x !== p) : [...f.processes, p] })}
+                  className={cn("rounded-full border px-3 py-1.5 text-xs font-semibold", on ? "gold-fill border-transparent" : "border-line text-muted")}
+                >
+                  {p}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 // ─────────────────────────────────────────────── piece "next step" helper
 /** Returns the primary actions available for a piece in its current state. */
 export function usePieceActions(piece: Piece) {
@@ -1221,3 +1488,5 @@ export const AddPhotosDialog = gate(AddPhotosBody);
 export const NoteDialog = gate(NoteBody);
 export const CustomerDialog = gate(CustomerBody);
 export const ArtisanDialog = gate(ArtisanBody);
+export const ChallanDialog = gate(ChallanBody);
+export const VendorDialog = gate(VendorBody);

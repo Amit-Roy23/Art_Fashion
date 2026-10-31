@@ -42,6 +42,12 @@ export interface Vendor {
   processes: string[];
 }
 
+/** Metal of an order, with the purities offered for it. */
+export interface MetalOption {
+  name: string;
+  purities: string[];
+}
+
 export interface Permissions {
   [perm: string]: { MANAGER: boolean; STAFF: boolean };
 }
@@ -54,7 +60,7 @@ export interface Settings {
   workStatuses: StatusOption<WorkCategory>[];
   jobStatuses: StatusOption<JobCategory>[];
   categories: string[];
-  purities: string[];
+  metals: MetalOption[];
   processes: string[];
   vendors: Vendor[];
   permissions: Permissions;
@@ -90,6 +96,8 @@ export interface Order {
   orderDate: string;
   dueDate: string;
   priority: "Normal" | "Urgent" | "VIP";
+  /** Gold / Silver / Copper … (Settings → Masters → Metals) */
+  metal: string;
   statusId: string;
   remarks: string;
   photos: Photo[];
@@ -111,6 +119,8 @@ export interface Piece {
   specs: string;
   stones?: string;
   estWeightMg: number;
+  /** estimated value in rupees, used on challans */
+  valueRs?: number;
   /** latest physically measured weight (moves along the workflow) */
   currentWeightMg?: number;
   finalWeightMg?: number;
@@ -199,11 +209,28 @@ export interface Delivery {
   photos: Photo[];
 }
 
+/** Delivery / road challan: goods leaving the premises, with weight and value. */
+export interface Challan {
+  id: string;
+  number: string;
+  orderId: string;
+  customerId: string;
+  date: string;
+  items: { pieceId: string; weightMg: number; valueRs: number }[];
+  mode: "By hand" | "Road transport" | "Courier";
+  vehicleNo?: string;
+  transporter?: string;
+  fromPlace: string;
+  toPlace: string;
+  remarks: string;
+  createdBy: string;
+}
+
 export interface Activity {
   id: string;
   at: string;
   by: string;
-  icon: "order" | "assign" | "submit" | "approve" | "rework" | "jobout" | "jobin" | "deliver" | "status" | "photo" | "stage" | "note" | "ready";
+  icon: "order" | "assign" | "submit" | "approve" | "rework" | "jobout" | "jobin" | "deliver" | "challan" | "status" | "photo" | "stage" | "note" | "ready";
   text: string;
   remarks?: string;
   orderId?: string;
@@ -227,6 +254,7 @@ export interface DB {
   workOrders: WorkOrder[];
   jobWorks: JobWork[];
   deliveries: Delivery[];
+  challans: Challan[];
   activity: Activity[];
   counters: Record<string, number>;
 }

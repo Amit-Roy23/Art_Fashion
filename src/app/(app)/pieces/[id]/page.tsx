@@ -156,12 +156,13 @@ export default function PieceDetail() {
 
           <Panel className="grid grid-cols-2 gap-4 p-4 sm:grid-cols-3">
             <KeyVal k="Category" v={p.category} />
-            <KeyVal k="Purity" v={p.purity} />
+            <KeyVal k="Metal / purity" v={`${order.metal} · ${p.purity}`} />
             <KeyVal k="Qty / size" v={`${p.qty}${p.size ? ` · ${p.size}` : ""}`} />
             <KeyVal k="Estimated" v={<span className="tabular">{g(p.estWeightMg)}</span>} />
             <KeyVal k="Current" v={<span className="tabular">{g(p.currentWeightMg)}</span>} />
             <KeyVal k="Final" v={<span className="tabular gold-text font-semibold">{g(p.finalWeightMg)}</span>} />
-            <KeyVal k="Stones" v={p.stones ?? "—"} className="col-span-2 sm:col-span-3" />
+            <KeyVal k="Est. value" v={<span className="tabular">{p.valueRs ? inr(p.valueRs) : "—"}</span>} />
+            <KeyVal k="Stones" v={p.stones ?? "—"} className="sm:col-span-2" />
             <div className="col-span-2 text-sm text-muted sm:col-span-3">{p.specs}</div>
             <div className="col-span-2 rounded-xl border-l-2 border-gold/50 bg-panel px-3 py-2 text-sm text-muted italic sm:col-span-3">“{p.remarks}”</div>
           </Panel>

@@ -1,27 +1,31 @@
 "use client";
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { BadgeCheck, Download, FileText, Plus, Share2, Workflow } from "lucide-react";
+import { BadgeCheck, Download, FileText, LayoutGrid, Plus, Rows3, Share2, Workflow } from "lucide-react";
 import { useCan, useDB } from "@/lib/store";
 import { artisanOf, coverPhoto, pieceOf, stageOf, workCategory } from "@/lib/queries";
-import { date, daysLeft, g } from "@/lib/format";
+import { cn, date, daysLeft, g } from "@/lib/format";
+import { workRegister } from "@/lib/registers";
+import { RegisterExport, RegisterTable } from "@/components/register";
 import { downloadPdf, sharePdf } from "@/lib/pdf-client";
 import { Avatar, Button, Empty, PageHeader, Panel, Segmented } from "@/components/ui";
 import { DueChip, WeightDelta, WorkStatusPill } from "@/components/domain";
 import { Thumb } from "@/components/photos";
 import { IssueWorkDialog, ReviewDialog, StatusDialog } from "@/components/actions";
 
-type T = "active" | "review" | "late" | "done" | "all";
+type T = "all" | "pending" | "review" | "late" | "done";
 
 export default function WorkOrdersPage() {
   const db = useDB();
   const canAssign = useCan("artisans.assign");
   const canReview = useCan("artisans.review");
-  const [t, setT] = useState<T>("active");
+  const [t, setT] = useState<T>("all");
+  const [view, setView] = useState<"cards" | "list">("cards");
   const [dlg, setDlg] = useState<null | "new" | { review: string } | { status: string }>(null);
   const test = useMemo(
     () => ({
-      active: (c: string) => !["DONE", "SUBMITTED"].includes(c),
+      // pending = everything not yet approved (with the karigar, on hold, rework, or awaiting review)
+      pending: (c: string) => c !== "DONE",
       review: (c: string) => c === "SUBMITTED",
       late: (c: string, due: string) => !["DONE", "SUBMITTED"].includes(c) && daysLeft(due) < 0,
       done: (c: string) => c === "DONE",
@@ -31,6 +35,13 @@ export default function WorkOrdersPage() {
   );
   const n = (k: T) => db.workOrders.filter((w) => test[k](workCategory(db, w.statusId), w.dueDate)).length;
   const rows = db.workOrders.filter((w) => test[t](workCategory(db, w.statusId), w.dueDate));
+  const label = { all: "All", pending: "Pending", review: "To review", late: "Overdue", done: "Completed" }[t];
+  const spec = workRegister(db, rows, {
+    title: "Work Order Register",
+    fileName: `Work-orders-${label.toLowerCase().replace(/\s+/g, "-")}-${new Date().toISOString().slice(0, 10)}`,
+    subtitle: `${label} work orders · all karigars`,
+    showKarigar: true,
+  });
   const d = typeof dlg === "object" && dlg ? dlg : null;
   return (
     <div>
@@ -46,19 +57,43 @@ export default function WorkOrdersPage() {
           )
         }
       />
-      <Segmented
-        className="mb-5"
-        value={t}
-        onChange={setT}
-        options={[
-          { value: "active", label: "In progress", count: n("active") },
-          { value: "review", label: "To review", count: n("review") },
-          { value: "late", label: "Overdue", count: n("late") },
-          { value: "done", label: "Approved", count: n("done") },
-          { value: "all", label: "All", count: n("all") },
-        ]}
-      />
-      {!rows.length ? (
+      <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-center">
+        <Segmented
+          value={t}
+          onChange={setT}
+          options={[
+            { value: "all", label: "All orders", count: n("all") },
+            { value: "pending", label: "Pending", count: n("pending") },
+            { value: "review", label: "To review", count: n("review") },
+            { value: "late", label: "Overdue", count: n("late") },
+            { value: "done", label: "Completed", count: n("done") },
+          ]}
+        />
+        <div className="flex items-center gap-2 lg:ml-auto">
+          <RegisterExport spec={spec} />
+          <div className="flex rounded-full border border-line bg-panel p-1">
+            <button
+              onClick={() => setView("cards")}
+              aria-label="Card view"
+              className={cn("grid size-8 place-items-center rounded-full", view === "cards" ? "bg-gold/20 text-gold" : "text-faint")}
+            >
+              <LayoutGrid className="size-4" />
+            </button>
+            <button
+              onClick={() => setView("list")}
+              aria-label="List view"
+              className={cn("grid size-8 place-items-center rounded-full", view === "list" ? "bg-gold/20 text-gold" : "text-faint")}
+            >
+              <Rows3 className="size-4" />
+            </button>
+          </div>
+        </div>
+      </div>
+      {view === "list" ? (
+        <Panel className="p-4">
+          <RegisterTable spec={spec} empty="Nothing here" />
+        </Panel>
+      ) : !rows.length ? (
         <Panel>
           <Empty icon={<FileText className="size-7" />} title="Nothing here" />
         </Panel>
@@ -85,6 +120,7 @@ export default function WorkOrdersPage() {
                     </div>
                     <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
                       <span>Issued {date(w.issuedAt)}</span>
+                      {w.submittedAt && <span>Submitted {date(w.submittedAt)}</span>}
                       <span className="tabular">
                         {g(w.issuedWeightMg)} → {g(w.submittedWeightMg)}
                       </span>

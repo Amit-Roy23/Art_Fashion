@@ -8,6 +8,7 @@ import { get as idbGet, set as idbSet, del as idbDel } from "idb-keyval";
 import { toast } from "sonner";
 import { OpError, type Ctx } from "./ops";
 import type { DB, Role, User } from "./types";
+import { DB_VERSION } from "./version";
 
 setAutoFreeze(false);
 
@@ -72,7 +73,8 @@ export async function boot() {
     try {
       db = await idbGet<DB>(DB_KEY);
     } catch {}
-    if (!db) {
+    if (!db || db.version !== DB_VERSION) {
+      // first visit, or demo data saved by an older version of the app
       db = await fetchSeed();
       try {
         await idbSet(DB_KEY, db);

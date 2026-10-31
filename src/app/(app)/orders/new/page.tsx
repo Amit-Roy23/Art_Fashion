@@ -4,10 +4,11 @@ import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, Check, Copy, Gem, Layers, Plus, Search, Trash2, UserPlus } from "lucide-react";
 import * as ops from "@/lib/ops";
 import { act, useCan, useDB } from "@/lib/store";
-import { cn, fromInputDate, g, inputDate, toMg } from "@/lib/format";
+import { cn, fromInputDate, g, inputDate, inr, toMg } from "@/lib/format";
 import { Avatar, Button, Field, Input, PageHeader, Panel, Select, Textarea } from "@/components/ui";
 import { PhotoInput, type DraftPhoto } from "@/components/photos";
 import { CustomerDialog, RemarksField } from "@/components/actions";
+import { MetalSwatch } from "@/components/domain";
 
 interface DraftPiece {
   name: string;
@@ -16,6 +17,7 @@ interface DraftPiece {
   size: string;
   qty: string;
   est: string;
+  value: string;
   stones: string;
   specs: string;
   remarks: string;
@@ -28,13 +30,21 @@ export default function NewOrderPage() {
   const db = useDB();
   const router = useRouter();
   const allowed = useCan("orders.create");
-  const blankPiece = (): DraftPiece => ({
+  const metals = db.settings.metals;
+  const puritiesOf = (metal: string) => metals.find((m) => m.name === metal)?.purities ?? [];
+  // 22K for gold, the first listed purity for other metals
+  const defaultPurity = (metal: string) => {
+    const list = puritiesOf(metal);
+    return list.find((x) => x.startsWith("22K")) ?? list[0] ?? "";
+  };
+  const blankPiece = (metal = metals[0]?.name ?? ""): DraftPiece => ({
     name: "",
     category: db.settings.categories[0],
-    purity: db.settings.purities[1] ?? db.settings.purities[0],
+    purity: defaultPurity(metal),
     size: "",
     qty: "1",
     est: "",
+    value: "",
     stones: "",
     specs: "",
     remarks: "",
@@ -51,8 +61,14 @@ export default function NewOrderPage() {
     orderDate: inputDate(),
     dueDate: inputDate(new Date(Date.now() + 14 * 864e5).toISOString()),
     priority: "Normal" as "Normal" | "Urgent" | "VIP",
+    metal: metals[0]?.name ?? "",
     remarks: "",
   }));
+  const pickMetal = (metal: string) => {
+    setO({ ...o, metal });
+    // keep each piece's purity valid for the newly chosen metal
+    setPieces(pieces.map((p) => (puritiesOf(metal).includes(p.purity) ? p : { ...p, purity: defaultPurity(metal) })));
+  };
   const [orderPhotos, setOrderPhotos] = useState<DraftPhoto[]>([]);
   const [pieces, setPieces] = useState<DraftPiece[]>([blankPiece()]);
 
@@ -86,6 +102,7 @@ export default function NewOrderPage() {
             orderDate: fromInputDate(o.orderDate),
             dueDate: fromInputDate(o.dueDate),
             priority: o.priority,
+            metal: o.metal,
             remarks: o.remarks,
             photos: orderPhotos.map((p) => ({ ...p, kind: "reference" as const })),
             pieces: pieces.map((p) => ({
@@ -97,6 +114,7 @@ export default function NewOrderPage() {
               specs: p.specs,
               stones: p.stones || undefined,
               estWeightMg: toMg(p.est),
+              valueRs: p.value ? Math.round(+p.value) : undefined,
               remarks: p.remarks,
               photos: p.photos.map((x) => ({ ...x, kind: "design" as const })),
             })),
@@ -211,6 +229,30 @@ export default function NewOrderPage() {
                 </button>
               ))}
             </div>
+            <div>
+              <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[.14em] text-muted">
+                Metal <span className="text-gold">*</span>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {metals.map((m) => (
+                  <button
+                    key={m.name}
+                    type="button"
+                    onClick={() => pickMetal(m.name)}
+                    className={cn(
+                      "flex items-center gap-2.5 rounded-2xl border p-3 text-left transition",
+                      o.metal === m.name ? "border-gold bg-gold/10" : "border-line bg-panel hover:border-line-2",
+                    )}
+                  >
+                    <MetalSwatch metal={m.name} />
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-semibold">{m.name}</span>
+                      <span className="block truncate text-[10px] text-muted">{m.purities.join(", ")}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
             <Field label="Order title" required>
               <Input
                 value={o.title}
@@ -286,9 +328,9 @@ export default function NewOrderPage() {
                       ))}
                     </Select>
                   </Field>
-                  <Field label="Purity">
+                  <Field label={`Purity (${o.metal})`}>
                     <Select value={p.purity} onChange={(e) => upd(i, { purity: e.target.value })}>
-                      {db.settings.purities.map((c) => (
+                      {puritiesOf(o.metal).map((c) => (
                         <option key={c}>{c}</option>
                       ))}
                     </Select>
@@ -301,6 +343,17 @@ export default function NewOrderPage() {
                       value={p.est}
                       onChange={(e) => upd(i, { est: e.target.value })}
                       placeholder="0.000"
+                      className="tabular"
+                    />
+                  </Field>
+                  <Field label="Est. value (₹)" hint="Optional · used on challans">
+                    <Input
+                      type="number"
+                      min="0"
+                      inputMode="numeric"
+                      value={p.value}
+                      onChange={(e) => upd(i, { value: e.target.value })}
+                      placeholder="0"
                       className="tabular"
                     />
                   </Field>
@@ -330,7 +383,7 @@ export default function NewOrderPage() {
             ))}
             {o.type === "PROJECT" && (
               <button
-                onClick={() => setPieces([...pieces, blankPiece()])}
+                onClick={() => setPieces([...pieces, blankPiece(o.metal)])}
                 className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-gold/40 py-4 text-sm font-semibold text-gold transition hover:bg-gold/5"
               >
                 <Plus className="size-4" /> Add another piece
@@ -351,12 +404,15 @@ export default function NewOrderPage() {
                 <div className="text-[10px] font-bold uppercase tracking-widest text-faint">Order</div>
                 <div className="mt-1 truncate font-semibold">{o.title}</div>
                 <div className="text-xs text-muted">
-                  {o.type === "PROJECT" ? "Project" : "Single piece"} · {o.priority} · due {o.dueDate}
+                  {o.type === "PROJECT" ? "Project" : "Single piece"} · {o.metal} · {o.priority} · due {o.dueDate}
                 </div>
               </div>
               <div className="rounded-2xl border border-gold/40 bg-gold/10 p-4">
-                <div className="text-[10px] font-bold uppercase tracking-widest text-faint">Estimated gold</div>
+                <div className="text-[10px] font-bold uppercase tracking-widest text-faint">Estimated {o.metal.toLowerCase()}</div>
                 <div className="font-display gold-text tabular text-3xl font-semibold">{g(pieces.reduce((s, p) => s + toMg(p.est), 0))}</div>
+                {pieces.some((p) => +p.value > 0) && (
+                  <div className="tabular text-xs text-muted">Value {inr(pieces.reduce((s, p) => s + (+p.value || 0), 0))}</div>
+                )}
               </div>
             </div>
             <div className="divide-y divide-line rounded-2xl border border-line">
@@ -377,7 +433,10 @@ export default function NewOrderPage() {
                       {p.category} · {p.purity} · qty {p.qty} {p.stones && `· ${p.stones}`}
                     </div>
                   </div>
-                  <div className="tabular font-semibold">{g(toMg(p.est))}</div>
+                  <div className="text-right">
+                    <div className="tabular font-semibold">{g(toMg(p.est))}</div>
+                    {+p.value > 0 && <div className="tabular text-xs text-muted">{inr(+p.value)}</div>}
+                  </div>
                 </div>
               ))}
             </div>
