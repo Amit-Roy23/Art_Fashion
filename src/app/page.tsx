@@ -41,7 +41,7 @@ function LandingInner() {
     <main className="relative z-10 mx-auto grid min-h-dvh max-w-7xl gap-10 px-5 py-8 lg:grid-cols-[1.1fr_.9fr] lg:items-center lg:gap-14 lg:px-10">
       {/* story side */}
       <section className="rise">
-        <Wordmark />
+        <Wordmark className="[&_img]:h-20 sm:[&_img]:h-24" />
         <h1 className="font-display mt-10 text-[2.8rem] leading-[1] font-medium sm:text-[3.8rem] xl:text-[4.3rem]">
           Every gram, every gem,
           <br />
