@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { OpError, type Ctx } from "./ops";
 import type { DB, Role, User } from "./types";
 import { DB_VERSION } from "./version";
+import { DEMO_ADDRESSES } from "./demo-addresses";
 
 setAutoFreeze(false);
 
@@ -77,6 +78,11 @@ export async function boot() {
       // v3 only changed the company GSTIN — keep the visitor's data, replace the old placeholder
       if (db.settings.company.gstin === "19ABCPL1234M1Z8") db.settings.company.gstin = "29AHUPL9170B1ZV";
       db.version = 3;
+    }
+    if (db && db.version === 3) {
+      // v4 added customer addresses (for address labels) — fill them in for the demo customers
+      db.customers.forEach((c) => !c.address && DEMO_ADDRESSES[c.phone] && Object.assign(c, DEMO_ADDRESSES[c.phone]));
+      db.version = 4;
       try {
         await idbSet(DB_KEY, db);
       } catch {}

@@ -102,6 +102,10 @@ export interface Customer {
   name: string;
   phone: string;
   city: string;
+  /** street / building, used on address labels */
+  address?: string;
+  state?: string;
+  pincode?: string;
   email?: string;
   type: "Retail" | "Showroom" | "Wholesale";
   notes?: string;

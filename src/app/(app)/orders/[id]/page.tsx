@@ -18,6 +18,7 @@ import {
   FileDown,
   ScrollText,
   Tag,
+  Package,
 } from "lucide-react";
 import { useCan, useDB } from "@/lib/store";
 import { artisanOf, coverPhoto, customerOf, orderCat, orderProgress, orderStatus, piecesOf, pieceOf, stageOf } from "@/lib/queries";
@@ -26,7 +27,7 @@ import { downloadPdf } from "@/lib/pdf-client";
 import { Bar, Button, Empty, KeyVal, Panel, SectionTitle } from "@/components/ui";
 import { DueChip, MetalPill, OrderStatusPill, PieceCard, PriorityBadge, Timeline, WeightDelta, WorkStatusPill } from "@/components/domain";
 import { PhotoGrid, Thumb } from "@/components/photos";
-import { AddPhotosDialog, ChallanDialog, DeliveryDialog, NoteDialog, StatusDialog } from "@/components/actions";
+import { AddPhotosDialog, AddressLabelDialog, ChallanDialog, DeliveryDialog, NoteDialog, StatusDialog } from "@/components/actions";
 import { activityFor } from "@/lib/queries";
 
 export default function OrderDetail() {
@@ -35,6 +36,7 @@ export default function OrderDetail() {
   const canStatus = useCan("orders.status");
   const canDeliver = useCan("delivery.create");
   const [dlg, setDlg] = useState<null | "status" | "photos" | "note" | "deliver" | "challan">(null);
+  const [label, setLabel] = useState<null | { challanId?: string }>(null);
   const o = db.orders.find((x) => x.id === id);
   if (!o)
     return (
@@ -120,6 +122,9 @@ export default function OrderDetail() {
             </Button>
             <Button variant="soft" icon={<Tag className="size-4" />} href={`/tags?order=${o.id}`}>
               Print tags
+            </Button>
+            <Button variant="soft" icon={<Package className="size-4" />} onClick={() => setLabel({})}>
+              Address label
             </Button>
             {canDeliver && cat !== "DONE" && cat !== "CANCELLED" && (
               <Button variant="soft" icon={<ScrollText className="size-4" />} onClick={() => setDlg("challan")}>
@@ -255,6 +260,9 @@ export default function OrderDetail() {
                     <Button size="sm" variant="ghost" icon={<Download className="size-3.5" />} onClick={() => downloadPdf("delivery-challan", ch.id)}>
                       PDF
                     </Button>
+                    <Button size="sm" variant="ghost" icon={<Package className="size-3.5" />} onClick={() => setLabel({ challanId: ch.id })}>
+                      Label
+                    </Button>
                   </div>
                 ))}
               </div>
@@ -297,6 +305,7 @@ export default function OrderDetail() {
       <NoteDialog open={dlg === "note"} onClose={() => setDlg(null)} target={{ orderId: o.id }} />
       <DeliveryDialog open={dlg === "deliver"} onClose={() => setDlg(null)} orderId={o.id} />
       <ChallanDialog open={dlg === "challan"} onClose={() => setDlg(null)} orderId={o.id} />
+      <AddressLabelDialog open={!!label} onClose={() => setLabel(null)} orderId={o.id} challanId={label?.challanId} />
     </div>
   );
 }
