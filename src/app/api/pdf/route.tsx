@@ -3,8 +3,11 @@
 //                 delivery / road challan, order summary (items with photos, weights, values)
 //  • "register" – A4 landscape tables: karigar work register, vendor register, karigar-wise lists
 // The client posts the data with photos already embedded as JPEG/PNG data URLs.
-import { Document, Image, Page, StyleSheet, Text, View, renderToBuffer } from "@react-pdf/renderer";
+import { Document, Font, Image, Page, Rect, StyleSheet, Svg, Text, View, renderToBuffer } from "@react-pdf/renderer";
 import { BRAND_LOGO_PNG, BRAND_LOGO_RATIO } from "@/lib/brand-logo";
+import { barRuns, code128 } from "@/lib/barcode";
+import { fitFontSize } from "@/lib/tags";
+import type { TagSettings } from "@/lib/types";
 
 export const runtime = "nodejs";
 
@@ -373,18 +376,152 @@ function Register({ d }: { d: RegisterPayload }) {
   );
 }
 
+// ─────────────────────────────────────────────── jewellery tags
+interface TagsPayload {
+  layout: "tags";
+  number: string;
+  mode: "roll" | "sheet";
+  settings: TagSettings;
+  tags: { barcode: string; code: string; lines: { text: string; strong?: boolean; small?: boolean }[] }[];
+}
+
+const MM = 72 / 25.4;
+// never split words with hyphens (codes and brand names must print whole)
+Font.registerHyphenationCallback((word) => [word]);
+// thermal label printers are 203 dpi: bar widths are whole printer dots
+const DOT_MM = 25.4 / 203;
+
+function Barcode({ value, widthPt, heightPt }: { value: string; widthPt: number; heightPt: number }) {
+  const pattern = code128(value);
+  const quiet = 6; // modules of white each side; the tag edge and text gap add more
+  // module = whole printer dots (2 dots = 0.25 mm when it fits), so every bar prints crisply
+  const dots = Math.max(1, Math.floor(widthPt / MM / (pattern.length + quiet * 2) / DOT_MM));
+  const modPt = dots * DOT_MM * MM;
+  const w = pattern.length * modPt;
+  // drawn as SVG rectangles: exact coordinates, no layout rounding of the thin bars
+  return (
+    <View style={{ width: widthPt, height: heightPt, alignItems: "center" }}>
+      <Svg width={w} height={heightPt} viewBox={`0 0 ${pattern.length} 100`} preserveAspectRatio="none">
+        {barRuns(pattern).map(([x, n], i) => (
+          <Rect key={i} x={x} y={0} width={n} height={100} fill="#000000" />
+        ))}
+      </Svg>
+    </View>
+  );
+}
+
+/** The printable body of one tag: text on the left half, barcode on the right half. */
+function TagBody({ t, s }: { t: TagsPayload["tags"][number]; s: TagSettings }) {
+  const w = s.bodyMm * MM;
+  const h = s.heightMm * MM;
+  const pad = 1.4 * MM;
+  const half = w / 2;
+  const units = t.lines.reduce((u, l) => u + (l.small ? 0.82 : 1), 0);
+  const font = Math.min(7.2, ((h - pad * 2) / Math.max(units, 1)) * 0.78);
+  const codeFont = Math.min(6.2, h * 0.13);
+  const barH = h - pad * 2 - codeFont * 1.35;
+  return (
+    <View style={{ width: w, height: h, flexDirection: "row" }}>
+      <View style={{ width: half, height: h, padding: pad, justifyContent: "center" }}>
+        {t.lines.map((l, i) => (
+          <Text
+            key={i}
+            style={{
+              fontSize: fitFontSize(l.text, l.small ? font * 0.82 : font, half - pad * 2, l.strong),
+              lineHeight: 1.12,
+              fontFamily: l.strong ? "Helvetica-Bold" : "Helvetica",
+              color: "#000000",
+              maxLines: 1,
+            }}
+          >
+            {l.text}
+          </Text>
+        ))}
+      </View>
+      <View style={{ width: half, height: h, paddingVertical: pad, alignItems: "center" }}>
+        <Barcode value={t.barcode} widthPt={half} heightPt={barH} />
+        <Text style={{ fontSize: codeFont, fontFamily: "Helvetica-Bold", marginTop: codeFont * 0.25, color: "#000000", letterSpacing: 0.4 }}>{t.barcode}</Text>
+      </View>
+    </View>
+  );
+}
+
+function Tags({ d }: { d: TagsPayload }) {
+  const s = d.settings;
+  const bodyW = s.bodyMm * MM;
+  const h = s.heightMm * MM;
+  const tailW = s.tailMm * MM;
+  if (d.mode === "roll") {
+    // one tag per page, page = label size, for the thermal label printer
+    const pageW = s.pageIncludesTail ? bodyW + tailW : bodyW;
+    return (
+      <Document title={`Jewellery tags ${d.number}`}>
+        {d.tags.map((t, i) => (
+          <Page key={i} size={[pageW, h]} style={{ padding: 0, backgroundColor: "#ffffff" }}>
+            <TagBody t={t} s={s} />
+          </Page>
+        ))}
+      </Document>
+    );
+  }
+  // A4 test sheet with cut outlines, to check the layout on plain paper first
+  const margin = 10 * MM;
+  const gapX = 5 * MM;
+  const gapY = 3 * MM;
+  const tagW = bodyW + tailW;
+  const cols = Math.max(1, Math.floor((595.28 - margin * 2 + gapX) / (tagW + gapX)));
+  const rows = Math.max(1, Math.floor((841.89 - margin * 2 - 14 + gapY) / (h + gapY)));
+  const perPage = cols * rows;
+  const pages = Array.from({ length: Math.ceil(d.tags.length / perPage) }, (_, i) => d.tags.slice(i * perPage, (i + 1) * perPage));
+  const tailH = Math.min(5 * MM, h * 0.32);
+  return (
+    <Document title={`Jewellery tags ${d.number}`}>
+      {pages.map((tags, pi) => (
+        <Page key={pi} size="A4" style={{ padding: margin, backgroundColor: "#ffffff" }}>
+          <Text style={{ fontSize: 7, color: "#777777", marginBottom: 6 }}>
+            Test sheet · tag {s.bodyMm} × {s.heightMm} mm + {s.tailMm} mm tail · print at 100% / actual size · page {pi + 1} of {pages.length}
+          </Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", width: cols * (tagW + gapX) }}>
+            {tags.map((t, i) => (
+              <View key={i} style={{ width: tagW, height: h, marginRight: gapX, marginBottom: gapY, flexDirection: "row", alignItems: "center" }}>
+                <View style={{ width: bodyW, height: h, borderWidth: 0.4, borderColor: "#9a9a9a", borderRadius: 1.5 * MM }}>
+                  <TagBody t={t} s={s} />
+                </View>
+                <View
+                  style={{
+                    width: tailW,
+                    height: tailH,
+                    borderWidth: 0.4,
+                    borderLeftWidth: 0,
+                    borderColor: "#9a9a9a",
+                    borderTopRightRadius: tailH / 2,
+                    borderBottomRightRadius: tailH / 2,
+                  }}
+                />
+              </View>
+            ))}
+          </View>
+        </Page>
+      ))}
+    </Document>
+  );
+}
+
 const isImage = (u: unknown) => typeof u === "string" && /^data:image\/(jpeg|jpg|png);base64,/.test(u);
 
 export async function POST(req: Request) {
-  let d: DocPayload | RegisterPayload;
+  let d: DocPayload | RegisterPayload | TagsPayload;
   try {
     d = await req.json();
   } catch {
     return new Response("Invalid JSON", { status: 400 });
   }
-  if (!d?.number || !Array.isArray(d.rows)) return new Response("Missing document data", { status: 400 });
+  if (!d?.number || (d.layout !== "tags" && !Array.isArray(d.rows))) return new Response("Missing document data", { status: 400 });
   let el;
-  if (d.layout === "register") {
+  if (d.layout === "tags") {
+    if (!Array.isArray(d.tags) || !d.tags.length || d.tags.length > 500) return new Response("Send 1–500 tags", { status: 400 });
+    el = <Tags d={d} />;
+  } else if (d.layout === "register") {
     d.rows = d.rows.map((r) => ({ ...r, photo: isImage(r.photo) ? r.photo : undefined }));
     el = <Register d={d} />;
   } else {

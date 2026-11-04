@@ -26,11 +26,13 @@ import {
   Repeat,
   ChevronRight,
   CornerDownLeft,
+  Tag,
 } from "lucide-react";
 import { can, login, logout, useDB, useStore, useUser } from "@/lib/store";
 import { setTheme, useTheme } from "@/lib/theme";
 import { cn } from "@/lib/format";
 import { Wordmark } from "./brand";
+import { pieceByTagCode, tagCode } from "@/lib/tags";
 import { Avatar, Drawer, IconButton, Kbd, Modal } from "./ui";
 import { ActivityFeed } from "./domain";
 
@@ -63,6 +65,7 @@ export const NAV = [
     group: "Dispatch & insight",
     items: [
       { href: "/deliveries", label: "Deliveries", icon: Truck },
+      { href: "/tags", label: "Jewellery tags", icon: Tag },
       { href: "/photos", label: "Photo vault", icon: Images },
       { href: "/reports", label: "Reports", icon: BarChart3, perm: "reports.view" },
       { href: "/settings", label: "Settings", icon: Settings2, perm: "settings.manage" },
@@ -377,7 +380,7 @@ function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void 
         out.push({ href: `/orders/${o.id}`, title: `${o.number} · ${o.title}`, sub: c?.name ?? "", kind: "Order", img: o.photos[0]?.url });
     });
     db.pieces.forEach((p) => {
-      if (m(p.code, p.name, p.category))
+      if (m(p.code, p.name, p.category, tagCode(p)) || pieceByTagCode(db, s)?.id === p.id)
         out.push({ href: `/pieces/${p.id}`, title: `${p.code} · ${p.name}`, sub: p.category, kind: "Piece", img: p.photos.at(-1)?.url });
     });
     db.customers.forEach(

@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import {
   ArrowLeft,
   BadgeCheck,
@@ -16,6 +16,7 @@ import {
   Sparkles,
   Truck,
   Workflow,
+  Tag,
 } from "lucide-react";
 import { useCan, useDB } from "@/lib/store";
 import { activeJW, activeWO, activityFor, artisanOf, customerOf, orderOf, stageOf, vendorOf, workCategory } from "@/lib/queries";
@@ -57,6 +58,7 @@ type Dlg =
 export default function PieceDetail() {
   const { id } = useParams<{ id: string }>();
   const db = useDB();
+  const router = useRouter();
   const open = useLightbox();
   const canAssign = useCan("artisans.assign");
   const canReview = useCan("artisans.review");
@@ -279,6 +281,12 @@ export default function PieceDetail() {
               {p.location !== "DELIVERED" && (
                 <ActionTile icon={<Workflow className="size-5" />} title="Move stage" sub="Manual stage change" onClick={() => setDlg("move")} />
               )}
+              <ActionTile
+                icon={<Tag className="size-5" />}
+                title="Print jewellery tag"
+                sub="Barcode, price & weight"
+                onClick={() => router.push(`/tags?pieces=${p.id}`)}
+              />
               <ActionTile
                 icon={<MessageSquareText className="size-5" />}
                 title="Add follow-up note"

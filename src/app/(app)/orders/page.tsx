@@ -1,5 +1,6 @@
 "use client";
-import { useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ClipboardList, Hammer, LayoutGrid, Plus, Rows3, Search } from "lucide-react";
 import { useDB } from "@/lib/store";
@@ -22,10 +23,24 @@ const MATCH: Record<F, (c: string) => boolean> = {
 
 const orderWeight = (db: ReturnType<typeof useDB>, o: Order) => piecesOf(db, o.id).reduce((s, p) => s + liveWeight(p), 0);
 
+/** Reads the query string with Next's hook (correct on client-side navigation) and
+ * remounts the page when it changes, so ?filters from links always apply. */
 export default function OrdersPage() {
-  // pages render client-side only (behind <Ready>), so reading the URL here is safe
-  const [tab, setTab] = useState<"orders" | "karigar">(() => (new URLSearchParams(location.search).get("tab") === "karigar" ? "karigar" : "orders"));
-  const [metal, setMetal] = useState(() => new URLSearchParams(location.search).get("metal") ?? "");
+  return (
+    <Suspense fallback={null}>
+      <WithParams />
+    </Suspense>
+  );
+}
+
+function WithParams() {
+  const sp = useSearchParams();
+  return <OrdersBody key={sp.toString()} sp={sp} />;
+}
+
+function OrdersBody({ sp }: { sp: URLSearchParams }) {
+  const [tab, setTab] = useState<"orders" | "karigar">(sp.get("tab") === "karigar" ? "karigar" : "orders");
+  const [metal, setMetal] = useState(sp.get("metal") ?? "");
   return (
     <div>
       <PageHeader
@@ -63,7 +78,7 @@ export default function OrdersPage() {
         />
         <MetalFilter value={metal} onChange={setMetal} />
       </div>
-      {tab === "orders" ? <OrderList metal={metal} /> : <KarigarWise metal={metal} />}
+      {tab === "orders" ? <OrderList metal={metal} initial={sp.get("f")} /> : <KarigarWise metal={metal} />}
     </div>
   );
 }
@@ -107,12 +122,9 @@ function MetalFilter({ value, onChange }: { value: string; onChange: (v: string)
   );
 }
 
-function OrderList({ metal }: { metal: string }) {
+function OrderList({ metal, initial }: { metal: string; initial: string | null }) {
   const db = useDB();
-  const [f, setF] = useState<F>(() => {
-    const v = new URLSearchParams(location.search).get("f");
-    return v && v in MATCH ? (v as F) : "all";
-  });
+  const [f, setF] = useState<F>(initial && initial in MATCH ? (initial as F) : "all");
   const [type, setType] = useState<"ALL" | Order["type"]>("ALL");
   const [q, setQ] = useState("");
   const [view, setView] = useState<"cards" | "table">("cards");
