@@ -2,7 +2,8 @@
 import { useEffect, type ReactNode } from "react";
 import { boot, useStore } from "@/lib/store";
 import { LightboxProvider } from "./photos";
-import { Gem, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
+import { Logo } from "./brand";
 import { Button } from "./ui";
 
 export function Providers({ children }: { children: ReactNode }) {
@@ -38,7 +39,7 @@ export function Loader() {
       <div className="flex flex-col items-center gap-4">
         <div className="relative grid size-16 place-items-center">
           <span className="absolute inset-0 animate-spin rounded-full border-2 border-gold/20 border-t-gold" />
-          <Gem className="size-6 text-gold" />
+          <Logo className="h-5" />
         </div>
         <div className="font-display text-lg text-muted italic">Opening the atelier…</div>
       </div>

@@ -104,7 +104,7 @@ export function Shell({ children }: { children: ReactNode }) {
       <header className="sticky top-0 z-40 border-b border-line bg-bg/70 backdrop-blur-xl">
         <div className="mx-auto flex h-16 max-w-[1500px] items-center gap-3 px-4 md:px-8">
           <div className="lg:hidden">
-            <Wordmark className="[&_svg]:size-7 [&_.font-display]:text-xl" />
+            <Wordmark compact />
           </div>
           <button
             onClick={() => setPalette(true)}

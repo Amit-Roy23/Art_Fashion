@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { LogOut } from "lucide-react";
 import { Ready } from "@/components/Providers";
-import { Logo } from "@/components/brand";
+import { Wordmark } from "@/components/brand";
 import { Avatar, IconButton } from "@/components/ui";
 import { ThemeToggle } from "@/components/Shell";
 import { logout, useDB, useStore, useUser } from "@/lib/store";
@@ -25,11 +25,8 @@ function KarigarShell({ children }: { children: ReactNode }) {
     <div className="relative z-10 mx-auto min-h-dvh max-w-xl pb-16">
       <header className="sticky top-0 z-40 flex items-center gap-3 border-b border-line bg-bg/75 px-4 py-3 backdrop-blur-xl">
         <Link href="/k" className="flex items-center gap-2">
-          <Logo className="size-7" />
-          <span className="leading-none">
-            <span className="font-display gold-text block text-lg font-semibold">Karigar</span>
-            <span className="block text-[9px] font-bold uppercase tracking-[.24em] text-faint">{db.settings.company.name}</span>
-          </span>
+          <Wordmark compact />
+          <span className="rounded-full border border-gold/40 bg-gold/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[.18em] text-gold">Karigar</span>
         </Link>
         <div className="ml-auto flex items-center gap-1">
           <ThemeToggle />
