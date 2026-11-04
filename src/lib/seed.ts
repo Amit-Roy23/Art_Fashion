@@ -29,7 +29,7 @@ function baseSettings(): Settings {
       address: "112, B. B. Ganguly Street, Bowbazar, Kolkata 700012",
       phone: "+91 98300 45210",
       email: "orders@layekjewels.in",
-      gstin: "19ABCPL1234M1Z8",
+      gstin: "29AHUPL9170B1ZV",
     },
     weightTolerancePct: 1.5,
     stages: [

@@ -73,6 +73,14 @@ export async function boot() {
     try {
       db = await idbGet<DB>(DB_KEY);
     } catch {}
+    if (db && db.version === 2) {
+      // v3 only changed the company GSTIN — keep the visitor's data, replace the old placeholder
+      if (db.settings.company.gstin === "19ABCPL1234M1Z8") db.settings.company.gstin = "29AHUPL9170B1ZV";
+      db.version = 3;
+      try {
+        await idbSet(DB_KEY, db);
+      } catch {}
+    }
     if (!db || db.version !== DB_VERSION) {
       // first visit, or demo data saved by an older version of the app
       db = await fetchSeed();
