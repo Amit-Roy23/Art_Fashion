@@ -96,12 +96,18 @@ function syncOrder(db: DB, orderId: string, ctx: Ctx) {
 export function createCustomer(db: DB, input: Omit<Customer, "id" | "code" | "createdAt">, ctx: Ctx) {
   if (!input.name.trim()) throw new OpError("Customer name is required");
   if (!/^\d{10}$/.test(input.phone.replace(/\D/g, "").slice(-10))) throw new OpError("Enter a valid 10-digit phone number");
+  checkPincode(input.pincode);
   const c: Customer = { ...input, id: uid("c"), code: nextNumber(db, "customer", "CUS", ctx.now), createdAt: ctx.now };
   db.customers.unshift(c);
   return c.id;
 }
 
+const checkPincode = (pin?: string) => {
+  if (pin && !/^\d{6}$/.test(pin)) throw new OpError("PIN code must be 6 digits");
+};
+
 export function updateCustomer(db: DB, id: string, patch: Partial<Customer>) {
+  checkPincode(patch.pincode);
   Object.assign(get(db.customers, id, "Customer"), patch);
 }
 

@@ -451,3 +451,25 @@ export async function downloadTags(tags: TagData[], settings: TagSettings, mode:
     return name;
   });
 }
+
+// ─────────────────────────────────────────────── address / shipping labels
+export interface LabelSpec {
+  to: { name: string; lines: string[]; phone?: string };
+  from: { name: string; lines: string[]; phone?: string };
+  priority?: string;
+  tracking: string;
+  qr: string;
+  info: { label: string; value: string }[];
+  marks: ("fragile" | "up" | "dry" | "care")[];
+  footer: [string, string, string];
+  note?: string;
+}
+
+/** 4 × 6 inch address labels, one per package. */
+export async function downloadLabels(labels: LabelSpec[], fileName: string) {
+  await withToast("address label", async () => {
+    const { blob, name } = await renderBody({ layout: "label", number: fileName, labels } as { number: string });
+    saveBlob(blob, name);
+    return name;
+  });
+}

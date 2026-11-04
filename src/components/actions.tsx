@@ -6,6 +6,11 @@ import {
   Camera,
   CheckCircle2,
   Download,
+  Tag,
+  Wine,
+  ArrowUp,
+  Umbrella,
+  Hand,
   FileText,
   Hammer,
   MessageSquareText,
@@ -20,12 +25,14 @@ import {
   UserPlus,
   Workflow,
 } from "lucide-react";
+import { toast } from "sonner";
+import { barRuns, code128 } from "@/lib/barcode";
 import * as ops from "@/lib/ops";
 import { act, run, useDB } from "@/lib/store";
 import type { Artisan, Customer, Piece, Vendor } from "@/lib/types";
 import { activeJW, activeWO, artisanLoad, artisanOf, customerOf, orderOf, pieceOf, piecesOf, stageOf, vendorOf } from "@/lib/queries";
 import { cn, diff, fromInputDate, g, inputDate, inr, toMg } from "@/lib/format";
-import { downloadPdf, sharePdf, type DocKind } from "@/lib/pdf-client";
+import { downloadLabels, downloadPdf, sharePdf, type DocKind } from "@/lib/pdf-client";
 import { Avatar, Button, Field, Input, Modal, Select, Textarea } from "./ui";
 import { PhotoGrid, PhotoInput, type DraftPhoto } from "./photos";
 
@@ -1083,8 +1090,18 @@ function NoteBody({ open, onClose, target }: { open: boolean; onClose: () => voi
 function CustomerBody({ open, onClose, customer, onSaved }: { open: boolean; onClose: () => void; customer?: Customer; onSaved?: (id: string) => void }) {
   const [f, setF] = useState(
     customer
-      ? { name: customer.name, phone: customer.phone, city: customer.city, email: customer.email ?? "", type: customer.type, notes: customer.notes ?? "" }
-      : { name: "", phone: "", city: "", email: "", type: "Retail" as Customer["type"], notes: "" },
+      ? {
+          name: customer.name,
+          phone: customer.phone,
+          address: customer.address ?? "",
+          city: customer.city,
+          state: customer.state ?? "",
+          pincode: customer.pincode ?? "",
+          email: customer.email ?? "",
+          type: customer.type,
+          notes: customer.notes ?? "",
+        }
+      : { name: "", phone: "", address: "", city: "", state: "", pincode: "", email: "", type: "Retail" as Customer["type"], notes: "" },
   );
   const save = () => {
     const id = customer
@@ -1114,9 +1131,20 @@ function CustomerBody({ open, onClose, customer, onSaved }: { open: boolean; onC
         <Field label="Phone" required>
           <Input inputMode="tel" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} placeholder="10-digit mobile" />
         </Field>
+        <Field label="Address" className="sm:col-span-2" hint="Printed on address labels">
+          <Input value={f.address} onChange={(e) => setF({ ...f, address: e.target.value })} placeholder="Building, street, area" />
+        </Field>
         <Field label="City / area">
           <Input value={f.city} onChange={(e) => setF({ ...f, city: e.target.value })} />
         </Field>
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="State">
+            <Input value={f.state} onChange={(e) => setF({ ...f, state: e.target.value })} />
+          </Field>
+          <Field label="PIN code">
+            <Input inputMode="numeric" maxLength={6} value={f.pincode} onChange={(e) => setF({ ...f, pincode: e.target.value.replace(/\D/g, "") })} />
+          </Field>
+        </div>
         <Field label="Type">
           <Select value={f.type} onChange={(e) => setF({ ...f, type: e.target.value as Customer["type"] })}>
             <option>Retail</option>
@@ -1444,6 +1472,341 @@ function VendorBody({ onClose, vendor }: { open: boolean; onClose: () => void; v
   );
 }
 
+// ─────────────────────────────────────────────── address / shipping label (4 × 6 in)
+type Mark = "fragile" | "up" | "dry" | "care";
+const MARK_LABEL: Record<Mark, string> = { fragile: "Fragile", up: "This side up", dry: "Keep dry", care: "Handle with care" };
+
+function LabelBody({
+  onClose,
+  orderId: fixedOrder,
+  challanId,
+  customerId: fixedCustomer,
+}: {
+  open: boolean;
+  onClose: () => void;
+  orderId?: string;
+  challanId?: string;
+  customerId?: string;
+}) {
+  const db = useDB();
+  const challan = challanId ? db.challans.find((c) => c.id === challanId) : undefined;
+  const initialOrder = orderOf(db, challan?.orderId ?? fixedOrder ?? "");
+  const [customerId, setCustomerId] = useState(challan?.customerId ?? initialOrder?.customerId ?? fixedCustomer ?? "");
+  const [orderId, setOrderId] = useState(initialOrder?.id ?? "");
+  const order = orderOf(db, orderId);
+  const customer = customerOf(db, customerId);
+  const goodsMg = challan
+    ? challan.items.reduce((s, i) => s + i.weightMg, 0)
+    : order
+      ? piecesOf(db, order.id)
+          .filter((p) => p.location !== "DELIVERED")
+          .reduce((s, p) => s + (p.finalWeightMg ?? p.currentWeightMg ?? p.estWeightMg), 0)
+      : 0;
+  const goodsRs = challan ? challan.items.reduce((s, i) => s + i.valueRs, 0) : order ? piecesOf(db, order.id).reduce((s, p) => s + (p.valueRs ?? 0), 0) : 0;
+  const toFor = (c?: Customer) => ({
+    name: c?.name ?? "",
+    address: c?.address ?? "",
+    city: c?.city ?? "",
+    state: c?.state ?? "",
+    pincode: c?.pincode ?? "",
+    phone: c?.phone ?? "",
+  });
+  const [to, setTo] = useState(() => toFor(customer));
+  const [ship, setShip] = useState(() => ({
+    service: (challan?.mode === "By hand" ? "By hand" : challan?.mode === "Road transport" ? "Road transport" : "Courier") as
+      | "Courier"
+      | "Road transport"
+      | "By hand",
+    carrier: challan?.transporter ?? "",
+    awb: challan?.vehicleNo && challan.mode === "Courier" ? challan.vehicleNo : "",
+    priority: initialOrder && initialOrder.priority !== "Normal" ? "PRIORITY" : "STANDARD",
+    packages: "1",
+    weightG: goodsMg ? ((goodsMg + 150000) / 1000).toFixed(0) : "250",
+    dims: "15 × 10 × 6",
+    date: inputDate(),
+    showValue: false,
+  }));
+  const [marks, setMarks] = useState<Mark[]>(["fragile", "up", "dry", "care"]);
+  const [saveAddr, setSaveAddr] = useState(() => !customer?.address);
+
+  const pickCustomer = (id: string) => {
+    setCustomerId(id);
+    setTo(toFor(customerOf(db, id)));
+    setSaveAddr(!customerOf(db, id)?.address);
+    if (order && order.customerId !== id) setOrderId("");
+  };
+  const ref = challan?.number ?? order?.number ?? customer?.code ?? "";
+  const tracking = (ship.awb.trim() || ref).toUpperCase();
+  const n = Math.max(1, Math.min(20, +ship.packages || 1));
+  const missing = !to.name.trim()
+    ? "Receiver name is required"
+    : !to.address.trim()
+      ? "Receiver address is required"
+      : !/^\d{6}$/.test(to.pincode)
+        ? "Enter the 6-digit PIN code"
+        : !tracking
+          ? "Choose an order or enter an AWB number"
+          : "";
+
+  const print = async () => {
+    if (missing) return toast.error(missing);
+    if (saveAddr && customer)
+      run((d) => ops.updateCustomer(d, customer.id, { address: to.address, city: to.city, state: to.state, pincode: to.pincode }), "Address saved to customer");
+    const c = db.settings.company;
+    const parts = c.address.split(",").map((x) => x.trim());
+    const fromLines = [parts.slice(0, -1).join(", ") || c.address, parts.at(-1) ?? "", `GSTIN: ${c.gstin}`].filter(Boolean);
+    const toLines = [to.address, [to.city, to.state].filter(Boolean).join(", "), `PIN ${to.pincode}`].filter(Boolean);
+    const day = new Date(fromInputDate(ship.date)).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+    const labels = Array.from({ length: n }, (_, i) => ({
+      to: { name: to.name.toUpperCase(), lines: toLines, phone: to.phone },
+      from: { name: c.name, lines: fromLines, phone: c.phone },
+      priority: ship.priority === "STANDARD" ? undefined : ship.priority,
+      tracking,
+      qr: [
+        `REF ${ref}`,
+        order ? `ORDER ${order.number}` : "",
+        `TO ${to.name}`,
+        `PIN ${to.pincode}`,
+        to.phone ? `PH ${to.phone}` : "",
+        `PKG ${i + 1}/${n}`,
+        `WT ${ship.weightG} g`,
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      info: [
+        { label: "ORDER NO.", value: order?.number ?? "—" },
+        { label: "WEIGHT", value: `${(+ship.weightG / 1000).toFixed(3)} kg` },
+        { label: "DIMENSIONS", value: `${ship.dims} cm` },
+      ],
+      marks,
+      footer: [day, `REF: ${ref}`, `PKG ${i + 1} of ${n}`] as [string, string, string],
+      note: [
+        ship.service + (ship.carrier ? ` · ${ship.carrier}` : ""),
+        ship.showValue && goodsRs ? `Declared value Rs. ${goodsRs.toLocaleString("en-IN")}` : "",
+      ]
+        .filter(Boolean)
+        .join("  ·  "),
+    }));
+    await downloadLabels(labels, `Label-${ref || tracking}`);
+  };
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Address label"
+      sub="4 × 6 inch shipping label — one per package, for the label printer or A6 paper."
+      icon={<Tag className="size-5" />}
+      wide
+      footer={
+        <>
+          {missing && <span className="mr-auto text-xs text-warn">{missing}</span>}
+          <Button variant="gold" icon={<Download className="size-4" />} onClick={print}>
+            Print {n > 1 ? `${n} labels` : "label"}
+          </Button>
+        </>
+      }
+    >
+      <div className="grid gap-6 md:grid-cols-[1fr_250px]">
+        <div className="space-y-4">
+          {!challan && (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Customer" required>
+                <Select value={customerId} onChange={(e) => pickCustomer(e.target.value)}>
+                  <option value="">Select…</option>
+                  {db.customers.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name} · {c.city}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="Order">
+                <Select value={orderId} onChange={(e) => setOrderId(e.target.value)}>
+                  <option value="">No order</option>
+                  {db.orders
+                    .filter((o) => !customerId || o.customerId === customerId)
+                    .map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.number} · {o.title}
+                      </option>
+                    ))}
+                </Select>
+              </Field>
+            </div>
+          )}
+          <div className="text-[11px] font-bold uppercase tracking-[.14em] text-gold">Ship to</div>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Name" required>
+              <Input value={to.name} onChange={(e) => setTo({ ...to, name: e.target.value })} />
+            </Field>
+            <Field label="Phone">
+              <Input inputMode="tel" value={to.phone} onChange={(e) => setTo({ ...to, phone: e.target.value })} />
+            </Field>
+            <Field label="Address" required className="sm:col-span-2">
+              <Input value={to.address} onChange={(e) => setTo({ ...to, address: e.target.value })} placeholder="Building, street, area" />
+            </Field>
+            <Field label="City">
+              <Input value={to.city} onChange={(e) => setTo({ ...to, city: e.target.value })} />
+            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="State">
+                <Input value={to.state} onChange={(e) => setTo({ ...to, state: e.target.value })} />
+              </Field>
+              <Field label="PIN" required>
+                <Input inputMode="numeric" maxLength={6} value={to.pincode} onChange={(e) => setTo({ ...to, pincode: e.target.value.replace(/\D/g, "") })} />
+              </Field>
+            </div>
+          </div>
+          {customer && (
+            <label className="flex items-center gap-2 text-xs text-muted">
+              <input type="checkbox" checked={saveAddr} onChange={(e) => setSaveAddr(e.target.checked)} className="accent-[var(--gold)]" /> Save this address to{" "}
+              {customer.name}
+            </label>
+          )}
+          <div className="text-[11px] font-bold uppercase tracking-[.14em] text-gold">Shipment</div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+            <Field label="Service">
+              <Select value={ship.service} onChange={(e) => setShip({ ...ship, service: e.target.value as typeof ship.service })}>
+                <option>Courier</option>
+                <option>Road transport</option>
+                <option>By hand</option>
+              </Select>
+            </Field>
+            <Field label="Carrier / courier">
+              <Input value={ship.carrier} onChange={(e) => setShip({ ...ship, carrier: e.target.value })} placeholder="e.g. BlueDart" />
+            </Field>
+            <Field label="AWB / tracking no." hint={`Barcode: ${tracking || "—"}`}>
+              <Input
+                value={ship.awb}
+                onChange={(e) => setShip({ ...ship, awb: e.target.value.replace(/[^\x20-\x7e]/g, "") })}
+                placeholder={ref || "Optional"}
+              />
+            </Field>
+            <Field label="Priority">
+              <Select value={ship.priority} onChange={(e) => setShip({ ...ship, priority: e.target.value })}>
+                <option>STANDARD</option>
+                <option>PRIORITY</option>
+                <option>EXPRESS</option>
+              </Select>
+            </Field>
+            <Field label="Packages">
+              <Input type="number" min="1" max="20" value={ship.packages} onChange={(e) => setShip({ ...ship, packages: e.target.value })} />
+            </Field>
+            <Field label="Weight / pkg (g)" hint={goodsMg ? `Goods ${g(goodsMg)} + packing` : undefined}>
+              <Input type="number" min="1" value={ship.weightG} onChange={(e) => setShip({ ...ship, weightG: e.target.value })} />
+            </Field>
+            <Field label="Dimensions (cm)">
+              <Input value={ship.dims} onChange={(e) => setShip({ ...ship, dims: e.target.value })} />
+            </Field>
+            <Field label="Date">
+              <Input type="date" value={ship.date} onChange={(e) => setShip({ ...ship, date: e.target.value })} />
+            </Field>
+          </div>
+          <div className="flex flex-wrap gap-1.5">
+            {(Object.keys(MARK_LABEL) as Mark[]).map((m) => {
+              const on = marks.includes(m);
+              return (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() =>
+                    setMarks(on ? marks.filter((x) => x !== m) : [...(Object.keys(MARK_LABEL) as Mark[]).filter((x) => x === m || marks.includes(x))])
+                  }
+                  className={cn("rounded-full border px-3 py-1.5 text-xs font-semibold", on ? "gold-fill border-transparent" : "border-line text-muted")}
+                >
+                  {on ? "✓ " : ""}
+                  {MARK_LABEL[m]}
+                </button>
+              );
+            })}
+          </div>
+          <label className="flex items-start gap-2 text-xs text-muted">
+            <input
+              type="checkbox"
+              checked={ship.showValue}
+              onChange={(e) => setShip({ ...ship, showValue: e.target.checked })}
+              className="mt-0.5 accent-[var(--gold)]"
+            />
+            <span>
+              Print declared value on the label{goodsRs ? ` (${inr(goodsRs)})` : ""}. Off by default — for jewellery it is safer not to show what the parcel is
+              worth.
+            </span>
+          </label>
+        </div>
+        {/* compact preview */}
+        <div className="md:sticky md:top-0">
+          <div className="mb-2 text-[11px] font-bold uppercase tracking-[.14em] text-muted">Preview</div>
+          <div className="aspect-[2/3] rounded-xl bg-white p-2 text-black shadow-lg">
+            <div className="flex h-full flex-col rounded-lg border-[1.5px] border-black p-2 text-[7px] leading-tight">
+              <div className="flex items-center justify-between">
+                <img src="/brand/arts-fashion-logo.png" alt="" className="h-6 w-auto" />
+                {ship.priority !== "STANDARD" && <span className="rounded-full border border-black px-1.5 py-0.5 text-[6px] font-bold">{ship.priority}</span>}
+              </div>
+              <div className="my-1.5 border-b border-black" />
+              <div className="flex gap-1.5">
+                <div className="min-w-0 flex-[1.15]">
+                  <div className="text-[6px] font-bold">TO</div>
+                  <div className="truncate text-[8px] font-bold">{to.name.toUpperCase() || "—"}</div>
+                  <div className="line-clamp-2">{to.address}</div>
+                  <div className="truncate">
+                    {[to.city, to.state].filter(Boolean).join(", ")} {to.pincode && `· ${to.pincode}`}
+                  </div>
+                  {to.phone && <div className="font-bold">Ph: {to.phone}</div>}
+                </div>
+                <div className="min-w-0 flex-1 border-l border-black pl-1.5 text-[6px]">
+                  <div className="font-bold">FROM</div>
+                  <div className="truncate font-bold">{db.settings.company.name}</div>
+                  <div className="line-clamp-3">{db.settings.company.address}</div>
+                </div>
+              </div>
+              <div className="my-1.5 border-b border-black" />
+              <div className="text-center text-[7px] font-bold tracking-wider">{tracking}</div>
+              {(() => {
+                const pat = code128(tracking || "-");
+                return (
+                  <svg viewBox={`0 0 ${pat.length} 10`} preserveAspectRatio="none" className="mx-auto mt-0.5 h-7 w-4/5" shapeRendering="crispEdges" aria-hidden>
+                    {barRuns(pat).map(([x, w], i) => (
+                      <rect key={i} x={x} y={0} width={w} height={10} fill="#000" />
+                    ))}
+                  </svg>
+                );
+              })()}
+              <div className="mt-1.5 grid grid-cols-3 rounded border border-black py-1 text-center text-[5.5px]">
+                <div>
+                  ORDER NO.<div className="text-[6.5px] font-bold">{order?.number ?? "—"}</div>
+                </div>
+                <div className="border-l border-black">
+                  WEIGHT<div className="text-[6.5px] font-bold">{(+ship.weightG / 1000).toFixed(3)} kg</div>
+                </div>
+                <div className="border-l border-black">
+                  DIMENSIONS<div className="text-[6.5px] font-bold">{ship.dims}</div>
+                </div>
+              </div>
+              <div className="mt-1.5 flex justify-around text-[5px] font-bold">
+                {marks.map((m) => {
+                  const I = { fragile: Wine, up: ArrowUp, dry: Umbrella, care: Hand }[m];
+                  return (
+                    <span key={m} className="grid size-5 place-items-center rounded-sm border border-black">
+                      <I className="size-3" strokeWidth={2.2} />
+                    </span>
+                  );
+                })}
+              </div>
+              <div className="mt-auto flex justify-between border-t border-black pt-1 text-[6px] font-bold">
+                <span>{ship.date}</span>
+                <span>REF: {ref}</span>
+                <span>PKG 1/{n}</span>
+              </div>
+            </div>
+          </div>
+          <p className="mt-2 text-[11px] text-faint">Print at 100% on 4 × 6 in (101.6 × 152.4 mm) labels.</p>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 // ─────────────────────────────────────────────── piece "next step" helper
 /** Returns the primary actions available for a piece in its current state. */
 export function usePieceActions(piece: Piece) {
@@ -1490,3 +1853,4 @@ export const CustomerDialog = gate(CustomerBody);
 export const ArtisanDialog = gate(ArtisanBody);
 export const ChallanDialog = gate(ChallanBody);
 export const VendorDialog = gate(VendorBody);
+export const AddressLabelDialog = gate(LabelBody);

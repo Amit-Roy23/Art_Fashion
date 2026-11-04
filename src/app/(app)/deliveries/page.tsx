@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
-import { Download, PackageCheck, ScrollText, Share2, Truck } from "lucide-react";
+import { Download, PackageCheck, ScrollText, Share2, Truck, Package } from "lucide-react";
 import { useCan, useDB } from "@/lib/store";
 import { coverPhoto, customerOf, orderOf, pieceOf, piecesOf } from "@/lib/queries";
 import { date, g, inr } from "@/lib/format";
@@ -9,13 +9,14 @@ import { downloadPdf, sharePdf } from "@/lib/pdf-client";
 import { Button, Empty, PageHeader, Panel, SectionTitle, Select } from "@/components/ui";
 import { DueChip } from "@/components/domain";
 import { Thumb } from "@/components/photos";
-import { ChallanDialog, DeliveryDialog } from "@/components/actions";
+import { AddressLabelDialog, ChallanDialog, DeliveryDialog } from "@/components/actions";
 
 export default function DeliveriesPage() {
   const db = useDB();
   const can = useCan("delivery.create");
   const [deliver, setDeliver] = useState<string | null>(null);
   const [challan, setChallan] = useState(false);
+  const [label, setLabel] = useState<null | { challanId?: string }>(null);
   const [cust, setCust] = useState("");
   const readyOrders = db.orders.filter((o) => piecesOf(db, o.id).some((p) => p.location === "READY"));
   const dels = db.deliveries.filter((d) => !cust || d.customerId === cust);
@@ -28,9 +29,14 @@ export default function DeliveriesPage() {
         sub="Ready pieces waiting for handover, delivery / road challans with weight and value, and the customer-wise delivery register."
         actions={
           can && (
-            <Button variant="gold" icon={<ScrollText className="size-4" />} onClick={() => setChallan(true)}>
-              New delivery challan
-            </Button>
+            <>
+              <Button variant="soft" icon={<Package className="size-4" />} onClick={() => setLabel({})}>
+                Address label
+              </Button>
+              <Button variant="gold" icon={<ScrollText className="size-4" />} onClick={() => setChallan(true)}>
+                New delivery challan
+              </Button>
+            </>
           )
         }
       />
@@ -116,6 +122,9 @@ export default function DeliveriesPage() {
                   <td className="pr-3 text-right whitespace-nowrap">
                     <Button size="sm" variant="ghost" icon={<Download className="size-3.5" />} onClick={() => downloadPdf("delivery-challan", c.id)}>
                       PDF
+                    </Button>
+                    <Button size="sm" variant="ghost" icon={<Package className="size-3.5" />} onClick={() => setLabel({ challanId: c.id })}>
+                      Label
                     </Button>
                     <Button
                       size="sm"
@@ -223,6 +232,7 @@ export default function DeliveriesPage() {
       </Panel>
       <DeliveryDialog open={!!deliver} onClose={() => setDeliver(null)} orderId={deliver ?? undefined} />
       <ChallanDialog open={challan} onClose={() => setChallan(false)} />
+      <AddressLabelDialog open={!!label} onClose={() => setLabel(null)} challanId={label?.challanId} />
     </div>
   );
 }

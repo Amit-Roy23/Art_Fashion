@@ -3,7 +3,8 @@
 //                 delivery / road challan, order summary (items with photos, weights, values)
 //  • "register" – A4 landscape tables: karigar work register, vendor register, karigar-wise lists
 // The client posts the data with photos already embedded as JPEG/PNG data URLs.
-import { Document, Font, Image, Page, Rect, StyleSheet, Svg, Text, View, renderToBuffer } from "@react-pdf/renderer";
+import { Document, Font, Image, Page, Path, Rect, StyleSheet, Svg, Text, View, renderToBuffer } from "@react-pdf/renderer";
+import QRCode from "qrcode";
 import { BRAND_LOGO_PNG, BRAND_LOGO_RATIO } from "@/lib/brand-logo";
 import { barRuns, code128 } from "@/lib/barcode";
 import { fitFontSize } from "@/lib/tags";
@@ -507,18 +508,191 @@ function Tags({ d }: { d: TagsPayload }) {
   );
 }
 
+// ─────────────────────────────────────────────── address / shipping labels (4 × 6 in)
+interface LabelParty {
+  name: string;
+  lines: string[];
+  phone?: string;
+}
+interface LabelPayload {
+  layout: "label";
+  number: string;
+  labels: {
+    to: LabelParty;
+    from: LabelParty;
+    priority?: string;
+    tracking: string;
+    qr: string;
+    info: { label: string; value: string }[];
+    marks: ("fragile" | "up" | "dry" | "care")[];
+    footer: [string, string, string];
+    note?: string;
+  }[];
+}
+
+// Handling-mark pictograms (24 × 24 stroke paths, from the Lucide icon set used in the app).
+const MARKS: Record<LabelPayload["labels"][number]["marks"][number], { label: string; paths: string[] }> = {
+  fragile: { label: "FRAGILE", paths: ["M8 22h8", "M7 10h10", "M12 15v7", "M12 15a5 5 0 0 0 5-5c0-2-.5-4-2-8H9c-1.5 4-2 6-2 8a5 5 0 0 0 5 5Z"] },
+  up: { label: "THIS SIDE UP", paths: ["m5 12 7-7 7 7", "M12 19V5"] },
+  dry: { label: "KEEP DRY", paths: ["M12 13v7a2 2 0 0 0 4 0", "M12 2v2", "M20.992 13a1 1 0 0 0 .97-1.274 10.284 10.284 0 0 0-19.923 0A1 1 0 0 0 3 13z"] },
+  care: {
+    label: "HANDLE WITH CARE",
+    paths: [
+      "M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2",
+      "M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2",
+      "M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8",
+      "M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15",
+    ],
+  },
+};
+
+function QR({ text, size }: { text: string; size: number }) {
+  const q = QRCode.create(text, { errorCorrectionLevel: "M" });
+  const n = q.modules.size;
+  const cells: [number, number][] = [];
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) if (q.modules.get(x, y)) cells.push([x, y]);
+  // 4-module quiet zone is part of the QR standard
+  return (
+    <Svg width={size} height={size} viewBox={`-4 -4 ${n + 8} ${n + 8}`}>
+      {cells.map(([x, y], i) => (
+        <Rect key={i} x={x} y={y} width={1.02} height={1.02} fill="#000000" />
+      ))}
+    </Svg>
+  );
+}
+
+const L = StyleSheet.create({
+  page: { padding: 9, backgroundColor: "#ffffff", fontFamily: "Helvetica", color: "#000000" },
+  frame: { flex: 1, borderWidth: 1.6, borderColor: "#000000", borderRadius: 8, padding: 10 },
+  rule: { borderBottomWidth: 0.8, borderBottomColor: "#000000", marginVertical: 7 },
+  cap: { fontSize: 7, fontFamily: "Helvetica-Bold", letterSpacing: 0.8, marginBottom: 2 },
+});
+
+function Label({ d }: { d: LabelPayload }) {
+  return (
+    <Document title={`Address label ${d.number}`}>
+      {d.labels.map((l, i) => (
+        <Page key={i} size={[288, 432]} style={L.page}>
+          <View style={L.frame}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+              {/* eslint-disable-next-line jsx-a11y/alt-text */}
+              <Image src={BRAND_LOGO_PNG} style={{ height: 34, width: 34 * BRAND_LOGO_RATIO }} />
+              {l.priority ? (
+                <Text
+                  style={{
+                    fontSize: 8,
+                    fontFamily: "Helvetica-Bold",
+                    letterSpacing: 0.8,
+                    borderWidth: 1.2,
+                    borderColor: "#000000",
+                    borderRadius: 9,
+                    paddingVertical: 3,
+                    paddingHorizontal: 9,
+                  }}
+                >
+                  {l.priority}
+                </Text>
+              ) : null}
+            </View>
+            <View style={L.rule} />
+            <View style={{ flexDirection: "row" }}>
+              <View style={{ flex: 1.15, paddingRight: 8 }}>
+                <Text style={[L.cap, { fontSize: 8 }]}>TO</Text>
+                <Text style={{ fontSize: 10.5, fontFamily: "Helvetica-Bold", marginBottom: 2 }}>{l.to.name}</Text>
+                {l.to.lines.map((x, j) => (
+                  <Text key={j} style={{ fontSize: 8.6, lineHeight: 1.3 }}>
+                    {x}
+                  </Text>
+                ))}
+                {l.to.phone ? <Text style={{ fontSize: 8.6, fontFamily: "Helvetica-Bold", marginTop: 2 }}>Ph: {l.to.phone}</Text> : null}
+              </View>
+              <View style={{ flex: 1, borderLeftWidth: 0.6, borderLeftColor: "#000000", paddingLeft: 8 }}>
+                <Text style={L.cap}>FROM</Text>
+                <Text style={{ fontSize: 8, fontFamily: "Helvetica-Bold", marginBottom: 1.5 }}>{l.from.name}</Text>
+                {l.from.lines.map((x, j) => (
+                  <Text key={j} style={{ fontSize: 7, lineHeight: 1.3 }}>
+                    {x}
+                  </Text>
+                ))}
+                {l.from.phone ? <Text style={{ fontSize: 7, marginTop: 1 }}>Ph: {l.from.phone}</Text> : null}
+              </View>
+            </View>
+            <View style={L.rule} />
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              <View style={{ flex: 1, alignItems: "center" }}>
+                <Text style={{ fontSize: 9, fontFamily: "Helvetica-Bold", letterSpacing: 1, marginBottom: 3 }}>{l.tracking}</Text>
+                <Barcode value={l.tracking} widthPt={170} heightPt={44} />
+              </View>
+              <View style={{ width: 66, alignItems: "flex-end" }}>
+                <QR text={l.qr} size={62} />
+              </View>
+            </View>
+            <View style={{ flexDirection: "row", borderWidth: 0.8, borderColor: "#000000", borderRadius: 5, marginTop: 8, paddingVertical: 6 }}>
+              {l.info.map((x, j) => (
+                <View key={j} style={{ flex: 1, alignItems: "center", borderLeftWidth: j ? 0.6 : 0, borderLeftColor: "#000000", paddingHorizontal: 3 }}>
+                  <Text style={{ fontSize: 6.2, letterSpacing: 0.6, marginBottom: 3 }}>{x.label}</Text>
+                  <Text style={{ fontSize: 8.4, fontFamily: "Helvetica-Bold", textAlign: "center" }}>{x.value}</Text>
+                </View>
+              ))}
+            </View>
+            {l.marks.length ? (
+              <View style={{ flexDirection: "row", justifyContent: "space-around", marginTop: 9 }}>
+                {l.marks.map((m) => (
+                  <View key={m} style={{ width: 58, alignItems: "center" }}>
+                    <View
+                      style={{
+                        width: 32,
+                        height: 32,
+                        borderWidth: 1.2,
+                        borderColor: "#000000",
+                        borderRadius: 4,
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <Svg width={22} height={22} viewBox="0 0 24 24">
+                        {MARKS[m].paths.map((d0, k) => (
+                          <Path key={k} d={d0} stroke="#000000" strokeWidth={2} fill="none" strokeLinecap="round" strokeLinejoin="round" />
+                        ))}
+                      </Svg>
+                    </View>
+                    <Text style={{ fontSize: 5.6, fontFamily: "Helvetica-Bold", marginTop: 3, textAlign: "center" }}>{MARKS[m].label}</Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+            {l.note ? <Text style={{ fontSize: 7, marginTop: 7, textAlign: "center" }}>{l.note}</Text> : null}
+            <View style={{ flex: 1 }} />
+            <View style={[L.rule, { marginBottom: 5 }]} />
+            <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+              {l.footer.map((x, j) => (
+                <Text key={j} style={{ fontSize: 7.6, fontFamily: "Helvetica-Bold", flex: 1, textAlign: j === 0 ? "left" : j === 1 ? "center" : "right" }}>
+                  {x}
+                </Text>
+              ))}
+            </View>
+          </View>
+        </Page>
+      ))}
+    </Document>
+  );
+}
+
 const isImage = (u: unknown) => typeof u === "string" && /^data:image\/(jpeg|jpg|png);base64,/.test(u);
 
 export async function POST(req: Request) {
-  let d: DocPayload | RegisterPayload | TagsPayload;
+  let d: DocPayload | RegisterPayload | TagsPayload | LabelPayload;
   try {
     d = await req.json();
   } catch {
     return new Response("Invalid JSON", { status: 400 });
   }
-  if (!d?.number || (d.layout !== "tags" && !Array.isArray(d.rows))) return new Response("Missing document data", { status: 400 });
+  if (!d?.number || (d.layout !== "tags" && d.layout !== "label" && !Array.isArray(d.rows))) return new Response("Missing document data", { status: 400 });
   let el;
-  if (d.layout === "tags") {
+  if (d.layout === "label") {
+    if (!Array.isArray(d.labels) || !d.labels.length || d.labels.length > 50) return new Response("Send 1–50 labels", { status: 400 });
+    el = <Label d={d} />;
+  } else if (d.layout === "tags") {
     if (!Array.isArray(d.tags) || !d.tags.length || d.tags.length > 500) return new Response("Send 1–500 tags", { status: 400 });
     el = <Tags d={d} />;
   } else if (d.layout === "register") {

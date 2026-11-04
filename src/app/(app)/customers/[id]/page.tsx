@@ -2,7 +2,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { ArrowLeft, Download, MessageCircle, Pencil, Phone, Plus, Users } from "lucide-react";
+import { ArrowLeft, Download, MessageCircle, Pencil, Phone, Plus, Users, Package } from "lucide-react";
 import { useDB } from "@/lib/store";
 import { coverPhoto, isOrderOpen, orderProgress, pieceOf, piecesOf } from "@/lib/queries";
 import { date, g } from "@/lib/format";
@@ -10,12 +10,13 @@ import { downloadPdf } from "@/lib/pdf-client";
 import { Avatar, Bar, Button, Empty, PageHeader, Panel, SectionTitle } from "@/components/ui";
 import { DueChip, OrderStatusPill, Timeline } from "@/components/domain";
 import { Thumb } from "@/components/photos";
-import { CustomerDialog } from "@/components/actions";
+import { AddressLabelDialog, CustomerDialog } from "@/components/actions";
 
 export default function CustomerDetail() {
   const { id } = useParams<{ id: string }>();
   const db = useDB();
   const [edit, setEdit] = useState(false);
+  const [label, setLabel] = useState(false);
   const c = db.customers.find((x) => x.id === id);
   if (!c)
     return (
@@ -44,7 +45,7 @@ export default function CustomerDetail() {
         }
         sub={
           <>
-            {c.city} · {c.phone}
+            {[c.address, c.city, c.state, c.pincode].filter(Boolean).join(", ")} · {c.phone}
             {c.email ? ` · ${c.email}` : ""}
             {c.notes && <span className="mt-1 block italic">“{c.notes}”</span>}
           </>
@@ -59,6 +60,9 @@ export default function CustomerDetail() {
             </Button>
             <Button variant="soft" icon={<Pencil className="size-4" />} onClick={() => setEdit(true)}>
               Edit
+            </Button>
+            <Button variant="soft" icon={<Package className="size-4" />} onClick={() => setLabel(true)}>
+              Address label
             </Button>
             <Button variant="gold" icon={<Plus className="size-4" />} href="/orders/new">
               New order
@@ -153,6 +157,7 @@ export default function CustomerDetail() {
         </Panel>
       </div>
       <CustomerDialog open={edit} onClose={() => setEdit(false)} customer={c} />
+      <AddressLabelDialog open={label} onClose={() => setLabel(false)} customerId={c.id} />
     </div>
   );
 }

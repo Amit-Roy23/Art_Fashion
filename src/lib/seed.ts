@@ -5,6 +5,7 @@ import * as ops from "./ops";
 import type { Ctx } from "./ops";
 import type { DB, Piece, Settings } from "./types";
 import { DB_VERSION } from "./version";
+import { DEMO_ADDRESSES } from "./demo-addresses";
 
 const img = (key: string, look: "sketch" | "raw" | "final") => `/demo/${key}-${look}.jpg`;
 
@@ -215,7 +216,7 @@ export function buildSeed(nowMs = Date.now()): DB {
     ["Sneha Ghosh", "9874000099", "New Town, Kolkata", "Retail", "Anniversary gift — keep surprise, call only husband"],
   ] as const;
   const C = customerDefs.map(([name, phone, city, type, notes], i) =>
-    ops.createCustomer(db, { name, phone, city, type, notes }, { ...sys, now: iso(nowMs - (90 - i * 6) * DAY) }),
+    ops.createCustomer(db, { name, phone, city, type, notes, ...DEMO_ADDRESSES[phone] }, { ...sys, now: iso(nowMs - (90 - i * 6) * DAY) }),
   );
 
   const orders: OrderScript[] = [
