@@ -17,6 +17,7 @@ import {
   ClipboardList,
   FileDown,
   ScrollText,
+  Tag,
 } from "lucide-react";
 import { useCan, useDB } from "@/lib/store";
 import { artisanOf, coverPhoto, customerOf, orderCat, orderProgress, orderStatus, piecesOf, pieceOf, stageOf } from "@/lib/queries";
@@ -116,6 +117,9 @@ export default function OrderDetail() {
             )}
             <Button variant="soft" icon={<FileDown className="size-4" />} onClick={() => downloadPdf("order-summary", o.id)}>
               Order PDF
+            </Button>
+            <Button variant="soft" icon={<Tag className="size-4" />} href={`/tags?order=${o.id}`}>
+              Print tags
             </Button>
             {canDeliver && cat !== "DONE" && cat !== "CANCELLED" && (
               <Button variant="soft" icon={<ScrollText className="size-4" />} onClick={() => setDlg("challan")}>

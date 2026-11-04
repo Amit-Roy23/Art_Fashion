@@ -48,6 +48,25 @@ export interface MetalOption {
   purities: string[];
 }
 
+/** Jewellery (rat-tail) barcode tag layout. All sizes in millimetres. */
+export interface TagSettings {
+  /** printable body length (both halves together) */
+  bodyMm: number;
+  /** body height */
+  heightMm: number;
+  /** thin tail beyond the body */
+  tailMm: number;
+  /** label printer page includes the tail (most rat-tail label stock) */
+  pageIncludesTail: boolean;
+  brand: string;
+  priceLabel: string;
+  taxNote: string;
+  showPrice: boolean;
+  showWeight: boolean;
+  showPurity: boolean;
+  showName: boolean;
+}
+
 export interface Permissions {
   [perm: string]: { MANAGER: boolean; STAFF: boolean };
 }
@@ -63,6 +82,8 @@ export interface Settings {
   metals: MetalOption[];
   processes: string[];
   vendors: Vendor[];
+  /** optional: older demo data has none, the app falls back to defaults */
+  tag?: TagSettings;
   permissions: Permissions;
 }
 
