@@ -4,6 +4,7 @@
 //  • "register" – A4 landscape tables: karigar work register, vendor register, karigar-wise lists
 // The client posts the data with photos already embedded as JPEG/PNG data URLs.
 import { Document, Image, Page, StyleSheet, Text, View, renderToBuffer } from "@react-pdf/renderer";
+import { BRAND_LOGO_PNG, BRAND_LOGO_RATIO } from "@/lib/brand-logo";
 
 export const runtime = "nodejs";
 
@@ -66,7 +67,8 @@ interface RegisterPayload {
   note?: string;
 }
 
-const GOLD = "#a8772b";
+// Arts & Fashion brand magenta (from the logo)
+const ACCENT = "#b3127a";
 const INK = "#22170f";
 const MUTED = "#7a6a5a";
 const LINE = "#e6dccb";
@@ -74,18 +76,16 @@ const DANGER = "#b4232c";
 
 const s = StyleSheet.create({
   page: { padding: 32, paddingBottom: 44, fontSize: 9.5, color: INK, fontFamily: "Helvetica", backgroundColor: "#fffdf8" },
-  band: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", borderBottomWidth: 2, borderBottomColor: GOLD, paddingBottom: 12 },
-  company: { fontFamily: "Times-Bold", fontSize: 22, color: INK },
-  tagline: { color: GOLD, fontSize: 8.5, marginTop: 2, letterSpacing: 1 },
+  band: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-end", borderBottomWidth: 2, borderBottomColor: ACCENT, paddingBottom: 12 },
   small: { color: MUTED, fontSize: 8, marginTop: 1.5 },
-  docTitle: { fontFamily: "Times-Italic", fontSize: 18, color: GOLD, textAlign: "right" },
+  docTitle: { fontFamily: "Times-Italic", fontSize: 18, color: ACCENT, textAlign: "right" },
   docNo: { fontFamily: "Helvetica-Bold", fontSize: 12, textAlign: "right", marginTop: 3 },
   grid: { flexDirection: "row", marginTop: 14, gap: 10 },
   box: { flex: 1, borderWidth: 1, borderColor: LINE, borderRadius: 6, padding: 9, backgroundColor: "#ffffff" },
   label: { fontSize: 7, color: MUTED, letterSpacing: 1.2, textTransform: "uppercase", marginBottom: 3 },
   strong: { fontFamily: "Helvetica-Bold", fontSize: 11 },
   table: { marginTop: 14, borderWidth: 1, borderColor: LINE, borderRadius: 6 },
-  th: { flexDirection: "row", backgroundColor: "#f4ecdd", paddingVertical: 6, paddingHorizontal: 8 },
+  th: { flexDirection: "row", backgroundColor: "#f8e7f1", paddingVertical: 6, paddingHorizontal: 8 },
   tr: { flexDirection: "row", paddingVertical: 7, paddingHorizontal: 8, borderTopWidth: 1, borderTopColor: LINE, alignItems: "center" },
   thText: { fontSize: 7.5, fontFamily: "Helvetica-Bold", color: MUTED, textTransform: "uppercase" },
   section: { marginTop: 12 },
@@ -106,16 +106,35 @@ const grams = (mg?: number) => (mg == null ? "-" : `${(mg / 1000).toFixed(3)} g`
 const rupees = (n?: number) => (n == null ? "-" : `Rs. ${n.toLocaleString("en-IN")}`);
 const titleCase = (k: string) => k.replace(/([A-Z])/g, " $1").replace(/^./, (c) => c.toUpperCase());
 
+const LOGO_H = 58;
+
+/** Brand logo, mandatory on every document, and repeated as a faint watermark on every page. */
+function Watermark({ landscape }: { landscape?: boolean }) {
+  const w = landscape ? 440 : 400;
+  const pageW = landscape ? 841.89 : 595.28;
+  const pageH = landscape ? 595.28 : 841.89;
+  const h = w / BRAND_LOGO_RATIO;
+  return (
+    <View fixed style={{ position: "absolute", left: (pageW - w) / 2, top: (pageH - h) / 2, width: w, height: h, opacity: 0.07 }}>
+      {/* eslint-disable-next-line jsx-a11y/alt-text */}
+      <Image src={BRAND_LOGO_PNG} style={{ width: w, height: h }} />
+    </View>
+  );
+}
+
 function Header({ company, title, number }: { company: Company; title: string; number: string }) {
   return (
     <View style={s.band}>
-      <View style={{ maxWidth: "62%" }}>
-        <Text style={s.company}>{company.name}</Text>
-        <Text style={s.tagline}>{company.tagline.toUpperCase()}</Text>
-        <Text style={s.small}>{company.address}</Text>
-        <Text style={s.small}>
-          {company.phone} · {company.email} · GSTIN {company.gstin}
-        </Text>
+      <View style={{ maxWidth: "64%", flexDirection: "row", alignItems: "flex-end" }}>
+        {/* eslint-disable-next-line jsx-a11y/alt-text */}
+        <Image src={BRAND_LOGO_PNG} style={{ height: LOGO_H, width: LOGO_H * BRAND_LOGO_RATIO, marginRight: 12 }} />
+        <View style={{ flexShrink: 1 }}>
+          <Text style={s.small}>{company.address}</Text>
+          <Text style={s.small}>
+            {company.phone} · {company.email}
+          </Text>
+          <Text style={[s.small, { color: INK, fontFamily: "Helvetica-Bold" }]}>GSTIN: {company.gstin}</Text>
+        </View>
       </View>
       <View>
         <Text style={s.docTitle}>{title}</Text>
@@ -144,6 +163,7 @@ function Doc({ d }: { d: DocPayload }) {
   return (
     <Document title={`${d.title} ${d.number}`} author={d.company.name}>
       <Page size="A4" style={s.page}>
+        <Watermark />
         <Header company={d.company} title={d.title} number={d.number} />
 
         <View style={s.grid}>
@@ -211,7 +231,7 @@ function Doc({ d }: { d: DocPayload }) {
                 {r.photo ? <Image src={r.photo} style={s.rowPhoto} /> : null}
                 <View style={{ flex: 1 }}>
                   <Text style={{ fontFamily: "Helvetica-Bold" }}>
-                    {r.name} <Text style={{ color: GOLD, fontFamily: "Helvetica" }}>({r.code})</Text>
+                    {r.name} <Text style={{ color: ACCENT, fontFamily: "Helvetica" }}>({r.code})</Text>
                   </Text>
                   {r.specs ? <Text style={[s.small, { lineHeight: 1.35 }]}>{r.specs}</Text> : null}
                   {r.stones ? <Text style={s.small}>Stones: {r.stones}</Text> : null}
@@ -290,6 +310,7 @@ function Register({ d }: { d: RegisterPayload }) {
   return (
     <Document title={`${d.title} ${d.number}`} author={d.company.name}>
       <Page size="A4" orientation="landscape" style={s.page}>
+        <Watermark landscape />
         <Header company={d.company} title={d.title} number={d.number} />
         <View style={{ flexDirection: "row", justifyContent: "space-between", marginTop: 10 }}>
           <Text style={{ fontFamily: "Helvetica-Bold", fontSize: 11 }}>{d.subtitle}</Text>
