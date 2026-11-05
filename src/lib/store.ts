@@ -1,12 +1,15 @@
 "use client";
-// Client-side demo database. The backend (/api/seed) generates the initial
-// data; every change is kept in this browser's IndexedDB so each visitor gets a
-// private, persistent sandbox. Other tabs of the same browser stay in sync.
+// Client-side database. Two modes:
+//  • demo – the backend (/api/seed) generates sample data; every change is kept in this
+//           browser's IndexedDB so each visitor gets a private sandbox (tabs stay in sync).
+//  • live – the server has MONGODB_URI set: real logins, and every change is saved to
+//           MongoDB (see live.ts). The screen updates instantly; saving happens behind it.
 import { useSyncExternalStore } from "react";
 import { produce, setAutoFreeze } from "immer";
 import { get as idbGet, set as idbSet, del as idbDel } from "idb-keyval";
 import { toast } from "sonner";
-import { OpError, type Ctx } from "./ops";
+import { OpError, withIdTape, type Ctx } from "./ops";
+import * as live from "./live";
 import type { DB, Role, User } from "./types";
 import { DB_VERSION } from "./version";
 import { DEMO_ADDRESSES } from "./demo-addresses";
@@ -16,18 +19,26 @@ setAutoFreeze(false);
 const DB_KEY = "lj-bms-db-v1";
 const SESSION_KEY = "lj-bms-session";
 
-interface State {
+export interface State {
   db: DB | null;
   userId: string | null;
-  status: "idle" | "loading" | "ready" | "error";
+  /** login / setup only happen in live mode */
+  status: "idle" | "loading" | "ready" | "error" | "login" | "setup";
   error?: string;
+  mode: "demo" | "live";
+  /** live: changes not yet saved to the server */
+  pending: number;
+  /** live: last save attempt failed (offline / server down) */
+  offline: boolean;
 }
 
-let state: State = { db: null, userId: null, status: "idle" };
+let state: State = { db: null, userId: null, status: "idle", mode: "demo", pending: 0, offline: false };
 const listeners = new Set<() => void>();
-const SERVER_STATE: State = { db: null, userId: null, status: "idle" };
+const SERVER_STATE: State = { db: null, userId: null, status: "idle", mode: "demo", pending: 0, offline: false };
 
-function setState(patch: Partial<State>) {
+export const getState = () => state;
+
+export function setState(patch: Partial<State>) {
   state = { ...state, ...patch };
   listeners.forEach((l) => l());
 }
@@ -63,8 +74,15 @@ async function fetchSeed(): Promise<DB> {
 }
 
 export async function boot() {
-  if (state.status === "loading" || state.status === "ready") return;
+  if (state.status !== "idle" && state.status !== "error") return;
   setState({ status: "loading" });
+  try {
+    const mode = await live.detect();
+    if (mode) return; // live mode: live.ts finished booting
+  } catch (e) {
+    setState({ status: "error", error: e instanceof Error ? e.message : String(e) });
+    return;
+  }
   try {
     let userId: string | null = null;
     try {
@@ -135,6 +153,7 @@ export function login(userId: string) {
 }
 
 export function logout() {
+  if (state.mode === "live") return live.signOut();
   try {
     localStorage.removeItem(SESSION_KEY);
   } catch {}
@@ -151,12 +170,16 @@ export function act<R>(fn: (draft: DB, ctx: Ctx) => R, success?: string): R | un
   const user = db.users.find((u) => u.id === state.userId);
   const ctx: Ctx = { now: new Date().toISOString(), by: user?.name ?? "System" };
   let result: R | undefined;
+  const ids: string[] = [];
   try {
     const next = produce(db, (draft: DB) => {
-      result = fn(draft, ctx);
+      result = withIdTape(ids, false, () => fn(draft, ctx));
     });
-    setState({ db: next });
-    persist(next);
+    if (next !== db) {
+      setState({ db: next });
+      if (state.mode === "live") live.enqueue(fn, ctx, ids);
+      else persist(next);
+    }
     if (success) toast.success(success);
     return result;
   } catch (e) {

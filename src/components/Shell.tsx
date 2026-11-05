@@ -29,6 +29,7 @@ import {
   Tag,
 } from "lucide-react";
 import { can, login, logout, useDB, useStore, useUser } from "@/lib/store";
+import { SaveIndicator } from "./live";
 import { setTheme, useTheme } from "@/lib/theme";
 import { cn } from "@/lib/format";
 import { Wordmark } from "./brand";
@@ -121,6 +122,7 @@ export function Shell({ children }: { children: ReactNode }) {
             </span>
           </button>
           <div className="flex items-center gap-1 lg:ml-auto">
+            <SaveIndicator className="mr-1" />
             <IconButton label="Activity" onClick={() => setFeed(true)} className="relative">
               <Bell className="size-5" />
               <span className="pulse-dot absolute top-2.5 right-2.5 size-2 rounded-full bg-gold shadow-[0_0_0_3px_var(--bg)]" />
@@ -213,7 +215,8 @@ function UserCard() {
   const db = useDB();
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const others = db.users.filter((u) => u.id !== user.id);
+  const live = useStore((s) => s.mode === "live");
+  const others = live ? [] : db.users.filter((u) => u.id !== user.id);
   return (
     <div className="relative">
       <button onClick={() => setOpen((v) => !v)} className="flex w-full items-center gap-3 rounded-xl p-2 text-left transition hover:bg-panel">
@@ -222,11 +225,11 @@ function UserCard() {
           <div className="truncate text-sm font-semibold">{user.name}</div>
           <div className="truncate text-[11px] text-gold">{user.title}</div>
         </div>
-        <Repeat className="size-4 text-faint" />
+        {live ? <LogOut className="size-4 text-faint" /> : <Repeat className="size-4 text-faint" />}
       </button>
       {open && (
         <div className="pop absolute right-0 bottom-full left-0 mb-2 rounded-2xl border border-line-2 bg-solid p-2 shadow-2xl">
-          <div className="px-2 py-1.5 text-[9px] font-bold uppercase tracking-[.22em] text-faint">Switch role (demo)</div>
+          {!live && <div className="px-2 py-1.5 text-[9px] font-bold uppercase tracking-[.22em] text-faint">Switch role (demo)</div>}
           <div className="scroll-thin max-h-72 overflow-y-auto">
             {others.map((u) => (
               <button
@@ -318,6 +321,7 @@ function MoreSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
   const groups = useNavItems();
   const user = useUser();
   const router = useRouter();
+  const live = useStore((s) => s.mode === "live");
   return (
     <Modal open={open} onClose={onClose} title="Menu" sub={user ? `${user.name} · ${user.title}` : undefined}>
       <div className="space-y-5">
@@ -349,7 +353,7 @@ function MoreSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
             }}
             className="flex flex-1 items-center justify-center gap-2 rounded-full border border-line-2 text-sm font-semibold text-muted"
           >
-            <Repeat className="size-4" /> Switch role
+            {live ? <LogOut className="size-4" /> : <Repeat className="size-4" />} {live ? "Sign out" : "Switch role"}
           </button>
         </div>
       </div>

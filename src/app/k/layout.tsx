@@ -7,6 +7,7 @@ import { Ready } from "@/components/Providers";
 import { Wordmark } from "@/components/brand";
 import { Avatar, IconButton } from "@/components/ui";
 import { ThemeToggle } from "@/components/Shell";
+import { SaveIndicator } from "@/components/live";
 import { logout, useDB, useStore, useUser } from "@/lib/store";
 
 function KarigarShell({ children }: { children: ReactNode }) {
@@ -29,6 +30,7 @@ function KarigarShell({ children }: { children: ReactNode }) {
           <span className="rounded-full border border-gold/40 bg-gold/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[.18em] text-gold">Karigar</span>
         </Link>
         <div className="ml-auto flex items-center gap-1">
+          <SaveIndicator />
           <ThemeToggle />
           <IconButton
             label="Sign out"

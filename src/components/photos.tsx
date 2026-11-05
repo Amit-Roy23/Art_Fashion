@@ -7,6 +7,7 @@ import type { Photo } from "@/lib/types";
 import { cn, dateTime } from "@/lib/format";
 import { compressToDataUrl, SAMPLE_KEYS, sampleUrl } from "@/lib/photos";
 import { Modal, Button, usePortal } from "./ui";
+import { useStore } from "@/lib/store";
 
 // ─────────────────────────────────────────────── lightbox
 const LightboxCtx = createContext<(photos: Photo[], index?: number) => void>(() => {});
@@ -173,6 +174,7 @@ export function PhotoInput({
   const camRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [picker, setPicker] = useState(false);
+  const live = useStore((s) => s.mode === "live");
 
   async function onFiles(files: FileList | null) {
     if (!files?.length) return;
@@ -231,14 +233,16 @@ export function PhotoInput({
           <ImagePlus className="size-5" />
           Upload
         </button>
-        <button
-          type="button"
-          onClick={() => setPicker(true)}
-          className="flex size-20 flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-line-2 text-[10px] font-semibold text-muted transition hover:border-gold/50 hover:text-text"
-        >
-          <Sparkles className="size-5" />
-          Sample
-        </button>
+        {!live && (
+          <button
+            type="button"
+            onClick={() => setPicker(true)}
+            className="flex size-20 flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-line-2 text-[10px] font-semibold text-muted transition hover:border-gold/50 hover:text-text"
+          >
+            <Sparkles className="size-5" />
+            Sample
+          </button>
+        )}
       </div>
       <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={(e) => onFiles(e.target.files)} />
       <input ref={camRef} type="file" accept="image/*" capture="environment" hidden onChange={(e) => onFiles(e.target.files)} />
