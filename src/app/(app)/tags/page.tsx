@@ -5,9 +5,9 @@ import { FileDown, Minus, Plus, Printer, RotateCcw, Save, ScanLine, Search, Tag,
 import { toast } from "sonner";
 import { run, useDB } from "@/lib/store";
 import { coverPhoto, customerOf, orderOf } from "@/lib/queries";
-import { DEFAULT_TAG, pieceByTagCode, tagCode, tagFor, tagSettings, type TagData } from "@/lib/tags";
+import { DEFAULT_TAG, netMg, pieceByTagCode, tagCode, tagFor, tagProblem, tagSettings, type TagData } from "@/lib/tags";
 import { downloadTags } from "@/lib/pdf-client";
-import { cn, g, inr } from "@/lib/format";
+import { cn, g } from "@/lib/format";
 import type { Piece, TagSettings } from "@/lib/types";
 import { Button, Empty, Field, Input, PageHeader, Panel, SectionTitle, Segmented, Select } from "@/components/ui";
 import { LocationPill } from "@/components/domain";
@@ -95,6 +95,14 @@ function TagsBody({ sp }: { sp: URLSearchParams }) {
 
   const saved = JSON.stringify(s) === JSON.stringify(tagSettings(db));
   const totalTags = selected.reduce((n, t) => n + Math.max(1, t.copies), 0);
+  const print = (mode: "roll" | "sheet") => {
+    const bad = selected.map(tagProblem).find(Boolean);
+    if (bad) return toast.error(bad);
+    // remember the less weight on each piece for its next tag
+    const changed = selected.filter((t) => (db.pieces.find((p) => p.id === t.pieceId)?.lessWeightMg ?? 0) !== t.lessMg);
+    if (changed.length) run((d) => changed.forEach((t) => (d.pieces.find((p) => p.id === t.pieceId)!.lessWeightMg = t.lessMg)));
+    downloadTags(selected, s, mode);
+  };
   const preview = selected[Math.min(previewIdx, selected.length - 1)] ?? (list[0] ? tagFor(db, list[0]) : undefined);
   const pageW = s.pageIncludesTail ? s.bodyMm + s.tailMm : s.bodyMm;
   const num = (v: string, min: number, max: number) => Math.max(min, Math.min(max, +v || min));
@@ -104,7 +112,7 @@ function TagsBody({ sp }: { sp: URLSearchParams }) {
       <PageHeader
         kicker="Labels"
         title="Jewellery tags"
-        sub="Barcode tags with price, weight, purity and brand — printed on the rat-tail tag roll from the label printer, or on A4 to test first."
+        sub="Barcode tags with gross, less and net weight, purity and tag number — printed on the rat-tail tag roll from the label printer, or on A4 to test first."
       />
 
       <div className="grid gap-6 xl:grid-cols-[1fr_1.25fr]">
@@ -191,7 +199,7 @@ function TagsBody({ sp }: { sp: URLSearchParams }) {
                     <span className="block truncate text-sm font-semibold">{p.name}</span>
                     <span className="tabular block truncate text-[11px] text-muted">
                       {p.code} · {g(p.finalWeightMg ?? p.currentWeightMg ?? p.estWeightMg)}
-                      {p.valueRs ? ` · ${inr(p.valueRs)}` : ""}
+                      {` · ${p.purity}`}
                     </span>
                   </span>
                   <span className="hidden sm:block">
@@ -249,10 +257,10 @@ function TagsBody({ sp }: { sp: URLSearchParams }) {
               title={`Tags to print (${totalTags})`}
               action={
                 <div className="flex flex-wrap gap-2">
-                  <Button variant="soft" icon={<FileDown className="size-4" />} disabled={!selected.length} onClick={() => downloadTags(selected, s, "sheet")}>
+                  <Button variant="soft" icon={<FileDown className="size-4" />} disabled={!selected.length} onClick={() => print("sheet")}>
                     A4 test sheet
                   </Button>
-                  <Button variant="gold" icon={<Printer className="size-4" />} disabled={!selected.length} onClick={() => downloadTags(selected, s, "roll")}>
+                  <Button variant="gold" icon={<Printer className="size-4" />} disabled={!selected.length} onClick={() => print("roll")}>
                     Print tags
                   </Button>
                 </div>
@@ -262,12 +270,13 @@ function TagsBody({ sp }: { sp: URLSearchParams }) {
               <Empty icon={<Tag className="size-7" />} title="No tags yet" sub="Pick pieces on the left, or scan their codes." />
             ) : (
               <div className="scroll-thin overflow-x-auto">
-                <table className="w-full min-w-[560px] text-sm">
+                <table className="w-full min-w-[500px] text-sm">
                   <thead>
                     <tr className="border-b border-line text-left text-[10px] font-bold uppercase tracking-widest text-faint">
                       <th className="py-2">Piece</th>
-                      <th>Price (₹)</th>
-                      <th>Weight (g)</th>
+                      <th>WT (g)</th>
+                      <th>Less (g)</th>
+                      <th>Net (g)</th>
                       <th className="text-center">Copies</th>
                       <th />
                     </tr>
@@ -284,23 +293,28 @@ function TagsBody({ sp }: { sp: URLSearchParams }) {
                         <td className="pr-2">
                           <Input
                             type="number"
+                            step="0.001"
                             min="0"
-                            inputMode="numeric"
-                            value={t.priceRs ?? ""}
-                            onChange={(e) => patch(t.pieceId, { priceRs: e.target.value ? +e.target.value : undefined })}
-                            className="tabular w-28"
+                            inputMode="decimal"
+                            aria-label="Gross weight in grams"
+                            value={(t.weightMg / 1000).toString()}
+                            onChange={(e) => patch(t.pieceId, { weightMg: Math.round((+e.target.value || 0) * 1000) })}
+                            className="tabular w-[5.5rem]"
                           />
                         </td>
                         <td className="pr-2">
                           <Input
                             type="number"
                             step="0.001"
+                            min="0"
                             inputMode="decimal"
-                            value={(t.weightMg / 1000).toString()}
-                            onChange={(e) => patch(t.pieceId, { weightMg: Math.round((+e.target.value || 0) * 1000) })}
-                            className="tabular w-28"
+                            aria-label="Less weight in grams"
+                            value={(t.lessMg / 1000).toString()}
+                            onChange={(e) => patch(t.pieceId, { lessMg: Math.round((+e.target.value || 0) * 1000) })}
+                            className={cn("tabular w-[5.5rem]", tagProblem(t) && "border-danger")}
                           />
                         </td>
+                        <td className={cn("tabular pr-2 font-semibold whitespace-nowrap", netMg(t) <= 0 && "text-danger")}>{(netMg(t) / 1000).toFixed(3)}</td>
                         <td>
                           <div className="flex items-center justify-center gap-1">
                             <button
@@ -345,7 +359,7 @@ function TagsBody({ sp }: { sp: URLSearchParams }) {
           <Panel className="p-5">
             <SectionTitle
               kicker="Layout"
-              title="Tag size & content"
+              title="Tag size"
               action={
                 <div className="flex gap-2">
                   <Button size="sm" variant="ghost" icon={<RotateCcw className="size-3.5" />} onClick={() => setS(DEFAULT_TAG)}>
@@ -373,26 +387,9 @@ function TagsBody({ sp }: { sp: URLSearchParams }) {
               <Field label="Tail (mm)">
                 <Input type="number" min="0" max="120" value={s.tailMm} onChange={(e) => setS({ ...s, tailMm: num(e.target.value, 0, 120) })} />
               </Field>
-              <Field label="Brand">
-                <Input value={s.brand} onChange={(e) => setS({ ...s, brand: e.target.value })} />
-              </Field>
-              <Field label="Price label">
-                <Input value={s.priceLabel} onChange={(e) => setS({ ...s, priceLabel: e.target.value })} />
-              </Field>
-              <Field label="Tax note" className="col-span-1 sm:col-span-3">
-                <Input value={s.taxNote} onChange={(e) => setS({ ...s, taxNote: e.target.value })} placeholder="Leave empty to hide" />
-              </Field>
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
-              {(
-                [
-                  ["showPrice", "Price"],
-                  ["showWeight", "Weight"],
-                  ["showPurity", "Purity"],
-                  ["showName", "Item name"],
-                  ["pageIncludesTail", "Printer page includes tail"],
-                ] as const
-              ).map(([k, label]) => (
+              {([["pageIncludesTail", "Printer page includes tail"]] as const).map(([k, label]) => (
                 <button
                   key={k}
                   type="button"

@@ -4,9 +4,10 @@
 // Karigar work orders deliberately omit customer contact details and prices.
 import { toast } from "sonner";
 import { getDB } from "./store";
+import { PRINT_NAME, printCompany } from "./shipping";
 import { artisanOf, coverPhoto, customerOf, orderOf, orderStatus, pieceOf, stageOf, vendorOf } from "./queries";
 import type { Photo, Piece, TagSettings } from "./types";
-import { tagLines, type TagData } from "./tags";
+import { tagFace, type TagData } from "./tags";
 
 export type DocKind = "work-order" | "job-challan" | "delivery-note" | "delivery-challan" | "order-summary";
 
@@ -108,7 +109,7 @@ export function rupeesInWords(n: number) {
 // ─────────────────────────────────────────────── documents
 async function payload(kind: DocKind, id: string) {
   const db = getDB();
-  const company = db.settings.company;
+  const company = printCompany(db);
   if (kind === "work-order") {
     const wo = db.workOrders.find((w) => w.id === id)!;
     const piece = pieceOf(db, wo.pieceId)!;
@@ -389,7 +390,7 @@ export async function downloadRegisterPdf(spec: RegisterSpec) {
     for (const r of spec.rows) rows.push({ cells: r.cells, flag: r.flag, photo: r.photoUrl ? ((await toJpeg(r.photoUrl, 160)) ?? undefined) : undefined });
     const { blob, name } = await renderBody({
       layout: "register",
-      company: db.settings.company,
+      company: printCompany(db),
       title: spec.title,
       number: spec.fileName,
       subtitle: spec.subtitle,
@@ -413,7 +414,7 @@ export async function downloadRegisterExcel(spec: RegisterSpec) {
     const cell = (v: string) => (/^[+-]?\d+(\.\d+)?$/.test(v) ? { value: Number(v), format: "0.000" } : { value: v });
     const body = spec.rows.map((r) => r.cells.map(cell));
     const data = [
-      [{ value: `${getDB().settings.company.name} — ${spec.title}`, fontWeight: "bold" as const }],
+      [{ value: `${PRINT_NAME} — ${spec.title}`, fontWeight: "bold" as const }],
       ...(spec.subtitle ? [[{ value: spec.subtitle }]] : []),
       [],
       header,
@@ -434,9 +435,7 @@ export async function downloadRegisterExcel(spec: RegisterSpec) {
 /** Renders jewellery tags: "roll" = one tag per page for the label printer, "sheet" = A4 test print. */
 export async function downloadTags(tags: TagData[], settings: TagSettings, mode: "roll" | "sheet") {
   await withToast("tags", async () => {
-    const expanded = tags.flatMap((t) =>
-      Array.from({ length: Math.max(1, Math.min(50, t.copies)) }, () => ({ barcode: t.barcode, code: t.code, lines: tagLines(t, settings) })),
-    );
+    const expanded = tags.flatMap((t) => Array.from({ length: Math.max(1, Math.min(50, t.copies)) }, () => ({ barcode: t.barcode, ...tagFace(t) })));
     const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "");
     const { blob, name } = await renderBody({
       layout: "tags",
@@ -453,9 +452,18 @@ export async function downloadTags(tags: TagData[], settings: TagSettings, mode:
 }
 
 // ─────────────────────────────────────────────── address / shipping labels
+export interface LabelParty {
+  name: string;
+  lines: string[];
+  gstin: string;
+  phone?: string;
+  /** "Ph" / "MOB"; the sender's line is printed even when empty */
+  phoneLabel: string;
+}
+
 export interface LabelSpec {
-  to: { name: string; lines: string[]; phone?: string };
-  from: { name: string; lines: string[]; phone?: string };
+  to: LabelParty;
+  from: LabelParty;
   priority?: string;
   tracking: string;
   qr: string;

@@ -8,6 +8,7 @@ import QRCode from "qrcode";
 import { BRAND_LOGO_PNG, BRAND_LOGO_RATIO } from "@/lib/brand-logo";
 import { barRuns, code128 } from "@/lib/barcode";
 import { fitFontSize } from "@/lib/tags";
+import { PRINT_NAME } from "@/lib/shipping";
 import type { TagSettings } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -134,9 +135,7 @@ function Header({ company, title, number }: { company: Company; title: string; n
         <Image src={BRAND_LOGO_PNG} style={{ height: LOGO_H, width: LOGO_H * BRAND_LOGO_RATIO, marginRight: 12 }} />
         <View style={{ flexShrink: 1 }}>
           <Text style={s.small}>{company.address}</Text>
-          <Text style={s.small}>
-            {company.phone} · {company.email}
-          </Text>
+          <Text style={s.small}>{[company.phone, company.email].filter(Boolean).join(" · ")}</Text>
           <Text style={[s.small, { color: INK, fontFamily: "Helvetica-Bold" }]}>GSTIN: {company.gstin}</Text>
         </View>
       </View>
@@ -383,7 +382,7 @@ interface TagsPayload {
   number: string;
   mode: "roll" | "sheet";
   settings: TagSettings;
-  tags: { barcode: string; code: string; lines: { text: string; strong?: boolean; small?: boolean }[] }[];
+  tags: { barcode: string; left: string[]; purity: string; tagNo: string }[];
 }
 
 const MM = 72 / 25.4;
@@ -411,37 +410,34 @@ function Barcode({ value, widthPt, heightPt }: { value: string; widthPt: number;
   );
 }
 
-/** The printable body of one tag: text on the left half, barcode on the right half. */
+/** The printable body of one tag: WT / LESS / NET from the top left; PURITY, barcode and TAG NO from the top right. */
 function TagBody({ t, s }: { t: TagsPayload["tags"][number]; s: TagSettings }) {
   const w = s.bodyMm * MM;
   const h = s.heightMm * MM;
-  const pad = 1.4 * MM;
+  const pad = 1.3 * MM;
   const half = w / 2;
-  const units = t.lines.reduce((u, l) => u + (l.small ? 0.82 : 1), 0);
-  const font = Math.min(7.2, ((h - pad * 2) / Math.max(units, 1)) * 0.78);
-  const codeFont = Math.min(6.2, h * 0.13);
-  const barH = h - pad * 2 - codeFont * 1.35;
+  const inner = half - pad * 2;
+  const font = Math.min(8, ((h - pad * 2) / 3) * 0.78);
+  const small = Math.min(6.4, h * 0.125);
+  const barH = Math.max(h * 0.3, h - pad * 2 - small * 2 * 1.3);
   return (
     <View style={{ width: w, height: h, flexDirection: "row" }}>
-      <View style={{ width: half, height: h, padding: pad, justifyContent: "center" }}>
-        {t.lines.map((l, i) => (
+      <View style={{ width: half, height: h, padding: pad, justifyContent: "space-between" }}>
+        {t.left.map((line, i) => (
           <Text
             key={i}
-            style={{
-              fontSize: fitFontSize(l.text, l.small ? font * 0.82 : font, half - pad * 2, l.strong),
-              lineHeight: 1.12,
-              fontFamily: l.strong ? "Helvetica-Bold" : "Helvetica",
-              color: "#000000",
-              maxLines: 1,
-            }}
+            style={{ fontSize: fitFontSize(line, font, inner, true), lineHeight: 1.1, fontFamily: "Helvetica-Bold", color: "#000000", maxLines: 1 }}
           >
-            {l.text}
+            {line}
           </Text>
         ))}
       </View>
-      <View style={{ width: half, height: h, paddingVertical: pad, alignItems: "center" }}>
+      <View style={{ width: half, height: h, paddingVertical: pad, alignItems: "center", justifyContent: "space-between" }}>
+        <Text style={{ fontSize: fitFontSize(t.purity, small, inner, true), fontFamily: "Helvetica-Bold", color: "#000000", maxLines: 1 }}>{t.purity}</Text>
         <Barcode value={t.barcode} widthPt={half} heightPt={barH} />
-        <Text style={{ fontSize: codeFont, fontFamily: "Helvetica-Bold", marginTop: codeFont * 0.25, color: "#000000", letterSpacing: 0.4 }}>{t.barcode}</Text>
+        <Text style={{ fontSize: fitFontSize(t.tagNo, small, inner, true), fontFamily: "Helvetica-Bold", color: "#000000", letterSpacing: 0.3, maxLines: 1 }}>
+          {t.tagNo}
+        </Text>
       </View>
     </View>
   );
@@ -512,7 +508,9 @@ function Tags({ d }: { d: TagsPayload }) {
 interface LabelParty {
   name: string;
   lines: string[];
+  gstin: string;
   phone?: string;
+  phoneLabel: string;
 }
 interface LabelPayload {
   layout: "label";
@@ -604,7 +602,12 @@ function Label({ d }: { d: LabelPayload }) {
                     {x}
                   </Text>
                 ))}
-                {l.to.phone ? <Text style={{ fontSize: 8.6, fontFamily: "Helvetica-Bold", marginTop: 2 }}>Ph: {l.to.phone}</Text> : null}
+                {l.to.phone ? (
+                  <Text style={{ fontSize: 8.6, fontFamily: "Helvetica-Bold", marginTop: 2 }}>
+                    {l.to.phoneLabel}: {l.to.phone}
+                  </Text>
+                ) : null}
+                <Text style={{ fontSize: 8.2, fontFamily: "Helvetica-Bold", marginTop: 2 }}>GSTIN: {l.to.gstin}</Text>
               </View>
               <View style={{ flex: 1, borderLeftWidth: 0.6, borderLeftColor: "#000000", paddingLeft: 8 }}>
                 <Text style={L.cap}>FROM</Text>
@@ -614,7 +617,10 @@ function Label({ d }: { d: LabelPayload }) {
                     {x}
                   </Text>
                 ))}
-                {l.from.phone ? <Text style={{ fontSize: 7, marginTop: 1 }}>Ph: {l.from.phone}</Text> : null}
+                <Text style={{ fontSize: 7, fontFamily: "Helvetica-Bold", marginTop: 1.5 }}>GSTIN: {l.from.gstin}</Text>
+                <Text style={{ fontSize: 7, marginTop: 1 }}>
+                  {l.from.phoneLabel}: {l.from.phone ?? ""}
+                </Text>
               </View>
             </View>
             <View style={L.rule} />
@@ -631,7 +637,7 @@ function Label({ d }: { d: LabelPayload }) {
               {l.info.map((x, j) => (
                 <View key={j} style={{ flex: 1, alignItems: "center", borderLeftWidth: j ? 0.6 : 0, borderLeftColor: "#000000", paddingHorizontal: 3 }}>
                   <Text style={{ fontSize: 6.2, letterSpacing: 0.6, marginBottom: 3 }}>{x.label}</Text>
-                  <Text style={{ fontSize: 8.4, fontFamily: "Helvetica-Bold", textAlign: "center" }}>{x.value}</Text>
+                  <Text style={{ fontSize: l.info.length > 3 ? 7.4 : 8.4, fontFamily: "Helvetica-Bold", textAlign: "center" }}>{x.value}</Text>
                 </View>
               ))}
             </View>
@@ -688,6 +694,8 @@ export async function POST(req: Request) {
     return new Response("Invalid JSON", { status: 400 });
   }
   if (!d?.number || (d.layout !== "tags" && d.layout !== "label" && !Array.isArray(d.rows))) return new Response("Missing document data", { status: 400 });
+  // documents only ever carry the printed brand, whatever the app's company name is
+  if ("company" in d && d.company) d.company = { ...d.company, name: PRINT_NAME };
   let el;
   if (d.layout === "label") {
     if (!Array.isArray(d.labels) || !d.labels.length || d.labels.length > 50) return new Response("Send 1–50 labels", { status: 400 });

@@ -1,6 +1,7 @@
 // Pure business operations on the DB. They mutate the draft they are given:
 // the client store wraps them in immer, and the backend seed replays them on a
 // plain object to build a realistic history. No React / browser APIs here.
+import { isValidGstin } from "./shipping";
 import type { Activity, Artisan, Challan, Customer, DB, JobCategory, Order, OrderCategory, Photo, Piece, Vendor, WorkCategory } from "./types";
 
 export interface Ctx {
@@ -97,7 +98,14 @@ export function createCustomer(db: DB, input: Omit<Customer, "id" | "code" | "cr
   if (!input.name.trim()) throw new OpError("Customer name is required");
   if (!/^\d{10}$/.test(input.phone.replace(/\D/g, "").slice(-10))) throw new OpError("Enter a valid 10-digit phone number");
   checkPincode(input.pincode);
-  const c: Customer = { ...input, id: uid("c"), code: nextNumber(db, "customer", "CUS", ctx.now), createdAt: ctx.now };
+  checkGstin(input.gstin);
+  const c: Customer = {
+    ...input,
+    gstin: input.gstin?.trim().toUpperCase() || undefined,
+    id: uid("c"),
+    code: nextNumber(db, "customer", "CUS", ctx.now),
+    createdAt: ctx.now,
+  };
   db.customers.unshift(c);
   return c.id;
 }
@@ -105,9 +113,14 @@ export function createCustomer(db: DB, input: Omit<Customer, "id" | "code" | "cr
 const checkPincode = (pin?: string) => {
   if (pin && !/^\d{6}$/.test(pin)) throw new OpError("PIN code must be 6 digits");
 };
+const checkGstin = (gstin?: string) => {
+  if (gstin && !isValidGstin(gstin)) throw new OpError("GSTIN is not valid — check the 15 characters");
+};
 
 export function updateCustomer(db: DB, id: string, patch: Partial<Customer>) {
   checkPincode(patch.pincode);
+  checkGstin(patch.gstin);
+  if (patch.gstin !== undefined) patch = { ...patch, gstin: patch.gstin.trim().toUpperCase() || undefined };
   Object.assign(get(db.customers, id, "Customer"), patch);
 }
 
