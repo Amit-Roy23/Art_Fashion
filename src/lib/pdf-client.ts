@@ -7,7 +7,7 @@ import { getDB } from "./store";
 import { PRINT_NAME, printCompany } from "./shipping";
 import { artisanOf, coverPhoto, customerOf, orderOf, orderStatus, pieceOf, stageOf, vendorOf } from "./queries";
 import type { Photo, Piece, TagSettings } from "./types";
-import { tagLines, type TagData } from "./tags";
+import { tagFace, type TagData } from "./tags";
 
 export type DocKind = "work-order" | "job-challan" | "delivery-note" | "delivery-challan" | "order-summary";
 
@@ -435,9 +435,7 @@ export async function downloadRegisterExcel(spec: RegisterSpec) {
 /** Renders jewellery tags: "roll" = one tag per page for the label printer, "sheet" = A4 test print. */
 export async function downloadTags(tags: TagData[], settings: TagSettings, mode: "roll" | "sheet") {
   await withToast("tags", async () => {
-    const expanded = tags.flatMap((t) =>
-      Array.from({ length: Math.max(1, Math.min(50, t.copies)) }, () => ({ barcode: t.barcode, code: t.code, lines: tagLines(t, settings) })),
-    );
+    const expanded = tags.flatMap((t) => Array.from({ length: Math.max(1, Math.min(50, t.copies)) }, () => ({ barcode: t.barcode, ...tagFace(t) })));
     const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "");
     const { blob, name } = await renderBody({
       layout: "tags",

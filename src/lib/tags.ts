@@ -2,7 +2,6 @@
 // its live preview and the PDF renderer.
 import { liveWeight, orderOf } from "./queries";
 import type { DB, Piece, TagSettings } from "./types";
-import { PRINT_NAME } from "./shipping";
 
 // Sizes measured from the client's sample tags; adjustable in the tag designer.
 export const DEFAULT_TAG: TagSettings = {
@@ -48,8 +47,10 @@ export interface TagData {
   name: string;
   purity: string;
   metal: string;
+  /** gross weight (WT) */
   weightMg: number;
-  priceRs?: number;
+  /** deducted weight (LESS): stones, beads… */
+  lessMg: number;
   copies: number;
 }
 
@@ -62,24 +63,29 @@ export function tagFor(db: DB, p: Piece): TagData {
     purity: p.purity,
     metal: orderOf(db, p.orderId)?.metal ?? "",
     weightMg: liveWeight(p),
-    priceRs: p.valueRs,
+    lessMg: p.lessWeightMg ?? 0,
     copies: 1,
   };
 }
 
-/** Text lines for the left half of a tag, in print order. */
-export function tagLines(t: TagData, s: TagSettings) {
-  const lines: { text: string; strong?: boolean; small?: boolean }[] = [];
-  if (s.showPrice && t.priceRs) {
-    lines.push({ text: `${s.priceLabel}: ${t.priceRs.toLocaleString("en-IN")}/-`, strong: true });
-    if (s.taxNote) lines.push({ text: s.taxNote, small: true });
-  }
-  if (s.showName) lines.push({ text: t.name });
-  if (s.showWeight || s.showPurity)
-    lines.push({ text: [s.showWeight ? `WT: ${(t.weightMg / 1000).toFixed(3)} g` : "", s.showPurity ? t.purity : ""].filter(Boolean).join(" · ") });
-  lines.push({ text: `BRAND: ${PRINT_NAME.toUpperCase()}`, strong: !s.showPrice || !t.priceRs });
-  lines.push({ text: `M.NO: ${t.code}`, small: true });
-  return lines;
+const grams = (mg: number) => `${(mg / 1000).toFixed(3)} g`;
+export const netMg = (t: TagData) => t.weightMg - t.lessMg;
+
+/** What a tag prints, as the client specified: WT / LESS / NET on the left; PURITY, barcode, TAG NO on the right. */
+export function tagFace(t: TagData) {
+  return {
+    left: [`WT: ${grams(t.weightMg)}`, `LESS: ${grams(t.lessMg)}`, `NET: ${grams(netMg(t))}`],
+    purity: `PURITY: ${t.purity}`,
+    tagNo: `TAG NO: ${t.barcode}`,
+  };
+}
+
+/** Why a tag cannot be printed, if anything. */
+export function tagProblem(t: TagData) {
+  if (!(t.weightMg > 0)) return `${t.code}: enter the weight`;
+  if (t.lessMg < 0) return `${t.code}: less weight cannot be negative`;
+  if (t.lessMg >= t.weightMg) return `${t.code}: less weight must be below the gross weight`;
+  return "";
 }
 
 // Helvetica advance widths (1/1000 em) for ASCII 32–126, from the standard font metrics.

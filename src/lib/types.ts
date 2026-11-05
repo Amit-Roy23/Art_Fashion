@@ -153,6 +153,8 @@ export interface Piece {
   /** latest physically measured weight (moves along the workflow) */
   currentWeightMg?: number;
   finalWeightMg?: number;
+  /** "less" weight deducted for tags (stones, beads…); net = gross − less */
+  lessWeightMg?: number;
   stageId: string;
   location: PieceLocation;
   artisanId?: string;
