@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { barRuns, code128 } from "@/lib/barcode";
+import { isValidGstin, SHIPPER } from "@/lib/shipping";
 import * as ops from "@/lib/ops";
 import { act, run, useDB } from "@/lib/store";
 import type { Artisan, Customer, Piece, Vendor } from "@/lib/types";
@@ -1097,11 +1098,12 @@ function CustomerBody({ open, onClose, customer, onSaved }: { open: boolean; onC
           city: customer.city,
           state: customer.state ?? "",
           pincode: customer.pincode ?? "",
+          gstin: customer.gstin ?? "",
           email: customer.email ?? "",
           type: customer.type,
           notes: customer.notes ?? "",
         }
-      : { name: "", phone: "", address: "", city: "", state: "", pincode: "", email: "", type: "Retail" as Customer["type"], notes: "" },
+      : { name: "", phone: "", address: "", city: "", state: "", pincode: "", gstin: "", email: "", type: "Retail" as Customer["type"], notes: "" },
   );
   const save = () => {
     const id = customer
@@ -1145,6 +1147,14 @@ function CustomerBody({ open, onClose, customer, onSaved }: { open: boolean; onC
             <Input inputMode="numeric" maxLength={6} value={f.pincode} onChange={(e) => setF({ ...f, pincode: e.target.value.replace(/\D/g, "") })} />
           </Field>
         </div>
+        <Field label="GSTIN" hint="Required on address labels">
+          <Input
+            value={f.gstin}
+            maxLength={15}
+            onChange={(e) => setF({ ...f, gstin: e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, "") })}
+            placeholder="15 characters"
+          />
+        </Field>
         <Field label="Type">
           <Select value={f.type} onChange={(e) => setF({ ...f, type: e.target.value as Customer["type"] })}>
             <option>Retail</option>
@@ -1510,6 +1520,7 @@ function LabelBody({
     state: c?.state ?? "",
     pincode: c?.pincode ?? "",
     phone: c?.phone ?? "",
+    gstin: c?.gstin ?? "",
   });
   const [to, setTo] = useState(() => toFor(customer));
   const [ship, setShip] = useState(() => ({
@@ -1524,15 +1535,16 @@ function LabelBody({
     weightG: goodsMg ? ((goodsMg + 150000) / 1000).toFixed(0) : "250",
     dims: "15 × 10 × 6",
     date: inputDate(),
-    showValue: false,
+    valueRs: goodsRs ? String(goodsRs) : "",
+    mobile: db.settings.shipperMobile ?? "",
   }));
   const [marks, setMarks] = useState<Mark[]>(["fragile", "up", "dry", "care"]);
-  const [saveAddr, setSaveAddr] = useState(() => !customer?.address);
+  const [saveAddr, setSaveAddr] = useState(() => !customer?.address || !customer?.gstin);
 
   const pickCustomer = (id: string) => {
     setCustomerId(id);
     setTo(toFor(customerOf(db, id)));
-    setSaveAddr(!customerOf(db, id)?.address);
+    setSaveAddr(!customerOf(db, id)?.address || !customerOf(db, id)?.gstin);
     if (order && order.customerId !== id) setOrderId("");
   };
   const ref = challan?.number ?? order?.number ?? customer?.code ?? "";
@@ -1544,22 +1556,25 @@ function LabelBody({
       ? "Receiver address is required"
       : !/^\d{6}$/.test(to.pincode)
         ? "Enter the 6-digit PIN code"
-        : !tracking
-          ? "Choose an order or enter an AWB number"
-          : "";
+        : !isValidGstin(to.gstin)
+          ? "Enter the receiver's valid 15-character GSTIN"
+          : !tracking
+            ? "Choose an order or enter an AWB number"
+            : "";
 
   const print = async () => {
     if (missing) return toast.error(missing);
     if (saveAddr && customer)
-      run((d) => ops.updateCustomer(d, customer.id, { address: to.address, city: to.city, state: to.state, pincode: to.pincode }), "Address saved to customer");
-    const c = db.settings.company;
-    const parts = c.address.split(",").map((x) => x.trim());
-    const fromLines = [parts.slice(0, -1).join(", ") || c.address, parts.at(-1) ?? "", `GSTIN: ${c.gstin}`].filter(Boolean);
+      run(
+        (d) => ops.updateCustomer(d, customer.id, { address: to.address, city: to.city, state: to.state, pincode: to.pincode, gstin: to.gstin }),
+        "Address & GSTIN saved to customer",
+      );
+    if ((db.settings.shipperMobile ?? "") !== ship.mobile) run((d) => void (d.settings.shipperMobile = ship.mobile));
     const toLines = [to.address, [to.city, to.state].filter(Boolean).join(", "), `PIN ${to.pincode}`].filter(Boolean);
     const day = new Date(fromInputDate(ship.date)).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
     const labels = Array.from({ length: n }, (_, i) => ({
-      to: { name: to.name.toUpperCase(), lines: toLines, phone: to.phone },
-      from: { name: c.name, lines: fromLines, phone: c.phone },
+      to: { name: to.name.toUpperCase(), lines: toLines, gstin: to.gstin.toUpperCase(), phone: to.phone, phoneLabel: "Ph" },
+      from: { name: SHIPPER.name, lines: SHIPPER.lines, gstin: SHIPPER.gstin, phone: ship.mobile, phoneLabel: "MOB" },
       priority: ship.priority === "STANDARD" ? undefined : ship.priority,
       tracking,
       qr: [
@@ -1576,16 +1591,12 @@ function LabelBody({
       info: [
         { label: "ORDER NO.", value: order?.number ?? "—" },
         { label: "WEIGHT", value: `${(+ship.weightG / 1000).toFixed(3)} kg` },
+        { label: "VALUATION", value: +ship.valueRs > 0 ? `Rs. ${(+ship.valueRs).toLocaleString("en-IN")}` : "—" },
         { label: "DIMENSIONS", value: `${ship.dims} cm` },
       ],
       marks,
       footer: [day, `REF: ${ref}`, `PKG ${i + 1} of ${n}`] as [string, string, string],
-      note: [
-        ship.service + (ship.carrier ? ` · ${ship.carrier}` : ""),
-        ship.showValue && goodsRs ? `Declared value Rs. ${goodsRs.toLocaleString("en-IN")}` : "",
-      ]
-        .filter(Boolean)
-        .join("  ·  "),
+      note: ship.service + (ship.carrier ? ` · ${ship.carrier}` : ""),
     }));
     await downloadLabels(labels, `Label-${ref || tracking}`);
   };
@@ -1657,11 +1668,25 @@ function LabelBody({
                 <Input inputMode="numeric" maxLength={6} value={to.pincode} onChange={(e) => setTo({ ...to, pincode: e.target.value.replace(/\D/g, "") })} />
               </Field>
             </div>
+            <Field
+              label="Receiver GSTIN"
+              required
+              className="sm:col-span-2"
+              hint={to.gstin && !isValidGstin(to.gstin) ? <span className="text-danger">Not a valid GSTIN (format or check character)</span> : undefined}
+            >
+              <Input
+                value={to.gstin}
+                maxLength={15}
+                onChange={(e) => setTo({ ...to, gstin: e.target.value.toUpperCase().replace(/[^0-9A-Z]/g, "") })}
+                placeholder="15-character GSTIN"
+                className="tabular tracking-wider"
+              />
+            </Field>
           </div>
           {customer && (
             <label className="flex items-center gap-2 text-xs text-muted">
-              <input type="checkbox" checked={saveAddr} onChange={(e) => setSaveAddr(e.target.checked)} className="accent-[var(--gold)]" /> Save this address to{" "}
-              {customer.name}
+              <input type="checkbox" checked={saveAddr} onChange={(e) => setSaveAddr(e.target.checked)} className="accent-[var(--gold)]" /> Save this address &
+              GSTIN to {customer.name}
             </label>
           )}
           <div className="text-[11px] font-bold uppercase tracking-[.14em] text-gold">Shipment</div>
@@ -1696,6 +1721,16 @@ function LabelBody({
             <Field label="Weight / pkg (g)" hint={goodsMg ? `Goods ${g(goodsMg)} + packing` : undefined}>
               <Input type="number" min="1" value={ship.weightG} onChange={(e) => setShip({ ...ship, weightG: e.target.value })} />
             </Field>
+            <Field label="Valuation (₹)" hint={goodsRs ? `Goods value ${inr(goodsRs)}` : "Value of the parcel contents"}>
+              <Input
+                type="number"
+                min="0"
+                inputMode="numeric"
+                value={ship.valueRs}
+                onChange={(e) => setShip({ ...ship, valueRs: e.target.value })}
+                placeholder="0"
+              />
+            </Field>
             <Field label="Dimensions (cm)">
               <Input value={ship.dims} onChange={(e) => setShip({ ...ship, dims: e.target.value })} />
             </Field>
@@ -1721,18 +1756,15 @@ function LabelBody({
               );
             })}
           </div>
-          <label className="flex items-start gap-2 text-xs text-muted">
-            <input
-              type="checkbox"
-              checked={ship.showValue}
-              onChange={(e) => setShip({ ...ship, showValue: e.target.checked })}
-              className="mt-0.5 accent-[var(--gold)]"
-            />
-            <span>
-              Print declared value on the label{goodsRs ? ` (${inr(goodsRs)})` : ""}. Off by default — for jewellery it is safer not to show what the parcel is
-              worth.
-            </span>
-          </label>
+          <div className="rounded-xl border border-line bg-panel p-3">
+            <div className="text-[11px] font-bold uppercase tracking-[.14em] text-gold">From (always printed)</div>
+            <div className="mt-1 text-sm font-semibold">{SHIPPER.name}</div>
+            <div className="text-xs text-muted">{SHIPPER.lines.join(" ")}</div>
+            <div className="tabular text-xs font-semibold">GSTIN: {SHIPPER.gstin}</div>
+            <Field label="Sender mobile (MOB)" className="mt-2" hint="Saved for future labels">
+              <Input inputMode="tel" value={ship.mobile} onChange={(e) => setShip({ ...ship, mobile: e.target.value })} placeholder="e.g. 98450 12345" />
+            </Field>
+          </div>
         </div>
         {/* compact preview */}
         <div className="md:sticky md:top-0">
@@ -1753,11 +1785,14 @@ function LabelBody({
                     {[to.city, to.state].filter(Boolean).join(", ")} {to.pincode && `· ${to.pincode}`}
                   </div>
                   {to.phone && <div className="font-bold">Ph: {to.phone}</div>}
+                  <div className="truncate font-bold">GSTIN: {to.gstin || "—"}</div>
                 </div>
                 <div className="min-w-0 flex-1 border-l border-black pl-1.5 text-[6px]">
                   <div className="font-bold">FROM</div>
-                  <div className="truncate font-bold">{db.settings.company.name}</div>
-                  <div className="line-clamp-3">{db.settings.company.address}</div>
+                  <div className="truncate font-bold">{SHIPPER.name}</div>
+                  <div>{SHIPPER.lines.join(" ")}</div>
+                  <div className="font-bold">GSTIN: {SHIPPER.gstin}</div>
+                  <div>MOB: {ship.mobile}</div>
                 </div>
               </div>
               <div className="my-1.5 border-b border-black" />
@@ -1772,12 +1807,15 @@ function LabelBody({
                   </svg>
                 );
               })()}
-              <div className="mt-1.5 grid grid-cols-3 rounded border border-black py-1 text-center text-[5.5px]">
+              <div className="mt-1.5 grid grid-cols-4 rounded border border-black py-1 text-center text-[5px]">
                 <div>
                   ORDER NO.<div className="text-[6.5px] font-bold">{order?.number ?? "—"}</div>
                 </div>
                 <div className="border-l border-black">
                   WEIGHT<div className="text-[6.5px] font-bold">{(+ship.weightG / 1000).toFixed(3)} kg</div>
+                </div>
+                <div className="border-l border-black">
+                  VALUATION<div className="text-[6.5px] font-bold">{+ship.valueRs > 0 ? `Rs. ${(+ship.valueRs).toLocaleString("en-IN")}` : "—"}</div>
                 </div>
                 <div className="border-l border-black">
                   DIMENSIONS<div className="text-[6.5px] font-bold">{ship.dims}</div>

@@ -83,6 +83,11 @@ export async function boot() {
       // v4 added customer addresses (for address labels) — fill them in for the demo customers
       db.customers.forEach((c) => !c.address && DEMO_ADDRESSES[c.phone] && Object.assign(c, DEMO_ADDRESSES[c.phone]));
       db.version = 4;
+    }
+    if (db && db.version === 4) {
+      // v5 added customer GSTINs (required on address labels) — fill them in for the demo customers
+      db.customers.forEach((c) => !c.gstin && DEMO_ADDRESSES[c.phone] && (c.gstin = DEMO_ADDRESSES[c.phone].gstin));
+      db.version = 5;
       try {
         await idbSet(DB_KEY, db);
       } catch {}

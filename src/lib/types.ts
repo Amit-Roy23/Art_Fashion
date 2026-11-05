@@ -84,6 +84,8 @@ export interface Settings {
   vendors: Vendor[];
   /** optional: older demo data has none, the app falls back to defaults */
   tag?: TagSettings;
+  /** sender mobile printed on address labels */
+  shipperMobile?: string;
   permissions: Permissions;
 }
 
@@ -106,6 +108,8 @@ export interface Customer {
   address?: string;
   state?: string;
   pincode?: string;
+  /** required on address labels */
+  gstin?: string;
   email?: string;
   type: "Retail" | "Showroom" | "Wholesale";
   notes?: string;

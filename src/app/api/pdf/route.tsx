@@ -512,7 +512,9 @@ function Tags({ d }: { d: TagsPayload }) {
 interface LabelParty {
   name: string;
   lines: string[];
+  gstin: string;
   phone?: string;
+  phoneLabel: string;
 }
 interface LabelPayload {
   layout: "label";
@@ -604,7 +606,12 @@ function Label({ d }: { d: LabelPayload }) {
                     {x}
                   </Text>
                 ))}
-                {l.to.phone ? <Text style={{ fontSize: 8.6, fontFamily: "Helvetica-Bold", marginTop: 2 }}>Ph: {l.to.phone}</Text> : null}
+                {l.to.phone ? (
+                  <Text style={{ fontSize: 8.6, fontFamily: "Helvetica-Bold", marginTop: 2 }}>
+                    {l.to.phoneLabel}: {l.to.phone}
+                  </Text>
+                ) : null}
+                <Text style={{ fontSize: 8.2, fontFamily: "Helvetica-Bold", marginTop: 2 }}>GSTIN: {l.to.gstin}</Text>
               </View>
               <View style={{ flex: 1, borderLeftWidth: 0.6, borderLeftColor: "#000000", paddingLeft: 8 }}>
                 <Text style={L.cap}>FROM</Text>
@@ -614,7 +621,10 @@ function Label({ d }: { d: LabelPayload }) {
                     {x}
                   </Text>
                 ))}
-                {l.from.phone ? <Text style={{ fontSize: 7, marginTop: 1 }}>Ph: {l.from.phone}</Text> : null}
+                <Text style={{ fontSize: 7, fontFamily: "Helvetica-Bold", marginTop: 1.5 }}>GSTIN: {l.from.gstin}</Text>
+                <Text style={{ fontSize: 7, marginTop: 1 }}>
+                  {l.from.phoneLabel}: {l.from.phone ?? ""}
+                </Text>
               </View>
             </View>
             <View style={L.rule} />
@@ -631,7 +641,7 @@ function Label({ d }: { d: LabelPayload }) {
               {l.info.map((x, j) => (
                 <View key={j} style={{ flex: 1, alignItems: "center", borderLeftWidth: j ? 0.6 : 0, borderLeftColor: "#000000", paddingHorizontal: 3 }}>
                   <Text style={{ fontSize: 6.2, letterSpacing: 0.6, marginBottom: 3 }}>{x.label}</Text>
-                  <Text style={{ fontSize: 8.4, fontFamily: "Helvetica-Bold", textAlign: "center" }}>{x.value}</Text>
+                  <Text style={{ fontSize: l.info.length > 3 ? 7.4 : 8.4, fontFamily: "Helvetica-Bold", textAlign: "center" }}>{x.value}</Text>
                 </View>
               ))}
             </View>

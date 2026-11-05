@@ -453,9 +453,18 @@ export async function downloadTags(tags: TagData[], settings: TagSettings, mode:
 }
 
 // ─────────────────────────────────────────────── address / shipping labels
+export interface LabelParty {
+  name: string;
+  lines: string[];
+  gstin: string;
+  phone?: string;
+  /** "Ph" / "MOB"; the sender's line is printed even when empty */
+  phoneLabel: string;
+}
+
 export interface LabelSpec {
-  to: { name: string; lines: string[]; phone?: string };
-  from: { name: string; lines: string[]; phone?: string };
+  to: LabelParty;
+  from: LabelParty;
   priority?: string;
   tracking: string;
   qr: string;
