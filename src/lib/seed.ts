@@ -29,7 +29,7 @@ function baseSettings(): Settings {
       tagline: "Handcrafted gold & bridal jewellery manufactory",
       address: "112, B. B. Ganguly Street, Bowbazar, Kolkata 700012",
       phone: "+91 98300 45210",
-      email: "orders@layekjewels.in",
+      email: "",
       gstin: "29AHUPL9170B1ZV",
     },
     weightTolerancePct: 1.5,

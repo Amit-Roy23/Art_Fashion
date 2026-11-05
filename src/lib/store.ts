@@ -88,6 +88,11 @@ export async function boot() {
       // v5 added customer GSTINs (required on address labels) — fill them in for the demo customers
       db.customers.forEach((c) => !c.gstin && DEMO_ADDRESSES[c.phone] && (c.gstin = DEMO_ADDRESSES[c.phone].gstin));
       db.version = 5;
+    }
+    if (db && db.version === 5) {
+      // v6: printed documents carry only the Arts & Fashion brand — drop the old placeholder email
+      if (db.settings.company.email === "orders@layekjewels.in") db.settings.company.email = "";
+      db.version = 6;
       try {
         await idbSet(DB_KEY, db);
       } catch {}

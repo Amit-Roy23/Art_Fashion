@@ -8,6 +8,7 @@ import QRCode from "qrcode";
 import { BRAND_LOGO_PNG, BRAND_LOGO_RATIO } from "@/lib/brand-logo";
 import { barRuns, code128 } from "@/lib/barcode";
 import { fitFontSize } from "@/lib/tags";
+import { PRINT_NAME } from "@/lib/shipping";
 import type { TagSettings } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -134,9 +135,7 @@ function Header({ company, title, number }: { company: Company; title: string; n
         <Image src={BRAND_LOGO_PNG} style={{ height: LOGO_H, width: LOGO_H * BRAND_LOGO_RATIO, marginRight: 12 }} />
         <View style={{ flexShrink: 1 }}>
           <Text style={s.small}>{company.address}</Text>
-          <Text style={s.small}>
-            {company.phone} · {company.email}
-          </Text>
+          <Text style={s.small}>{[company.phone, company.email].filter(Boolean).join(" · ")}</Text>
           <Text style={[s.small, { color: INK, fontFamily: "Helvetica-Bold" }]}>GSTIN: {company.gstin}</Text>
         </View>
       </View>
@@ -698,6 +697,8 @@ export async function POST(req: Request) {
     return new Response("Invalid JSON", { status: 400 });
   }
   if (!d?.number || (d.layout !== "tags" && d.layout !== "label" && !Array.isArray(d.rows))) return new Response("Missing document data", { status: 400 });
+  // documents only ever carry the printed brand, whatever the app's company name is
+  if ("company" in d && d.company) d.company = { ...d.company, name: PRINT_NAME };
   let el;
   if (d.layout === "label") {
     if (!Array.isArray(d.labels) || !d.labels.length || d.labels.length > 50) return new Response("Send 1–50 labels", { status: 400 });

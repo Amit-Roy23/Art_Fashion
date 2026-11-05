@@ -1,8 +1,19 @@
-// Address-label sender and GSTIN rules.
+// Printed brand, address-label sender and GSTIN rules.
+import type { DB } from "./types";
+
+/**
+ * The only business name printed or sent to anyone: PDFs, challans, labels, tags,
+ * Excel exports and WhatsApp texts. "Layek Jewels" stays the name of the software
+ * on its own screens.
+ */
+export const PRINT_NAME = "Arts & Fashion";
+
+/** Company details for printing, with the name fixed to the printed brand. */
+export const printCompany = (db: DB) => ({ ...db.settings.company, name: PRINT_NAME });
 
 /** Sender printed on every address label (as specified by the client). */
 export const SHIPPER = {
-  name: "Arts & Fashion",
+  name: PRINT_NAME,
   lines: ["#56, 1/1 2nd Floor, Mallikarjunappa lane,", "Avenue Cross Road, Nagartapete,", "Bengaluru, KA - 560002."],
   gstin: "29AHUPL9170B1ZV",
 };

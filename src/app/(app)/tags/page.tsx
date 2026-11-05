@@ -4,6 +4,7 @@ import { useSearchParams } from "next/navigation";
 import { FileDown, Minus, Plus, Printer, RotateCcw, Save, ScanLine, Search, Tag, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { run, useDB } from "@/lib/store";
+import { PRINT_NAME } from "@/lib/shipping";
 import { coverPhoto, customerOf, orderOf } from "@/lib/queries";
 import { DEFAULT_TAG, pieceByTagCode, tagCode, tagFor, tagSettings, type TagData } from "@/lib/tags";
 import { downloadTags } from "@/lib/pdf-client";
@@ -373,8 +374,8 @@ function TagsBody({ sp }: { sp: URLSearchParams }) {
               <Field label="Tail (mm)">
                 <Input type="number" min="0" max="120" value={s.tailMm} onChange={(e) => setS({ ...s, tailMm: num(e.target.value, 0, 120) })} />
               </Field>
-              <Field label="Brand">
-                <Input value={s.brand} onChange={(e) => setS({ ...s, brand: e.target.value })} />
+              <Field label="Brand" hint="Fixed on all printouts">
+                <Input value={PRINT_NAME.toUpperCase()} readOnly disabled />
               </Field>
               <Field label="Price label">
                 <Input value={s.priceLabel} onChange={(e) => setS({ ...s, priceLabel: e.target.value })} />

@@ -21,6 +21,7 @@ import {
   Package,
 } from "lucide-react";
 import { useCan, useDB } from "@/lib/store";
+import { PRINT_NAME } from "@/lib/shipping";
 import { artisanOf, coverPhoto, customerOf, orderCat, orderProgress, orderStatus, piecesOf, pieceOf, stageOf } from "@/lib/queries";
 import { cn, date, g, inr } from "@/lib/format";
 import { downloadPdf } from "@/lib/pdf-client";
@@ -69,7 +70,7 @@ export default function OrderDetail() {
   const challans = db.challans.filter((x) => x.orderId === o.id);
   const finalTotal = ps.every((p) => p.finalWeightMg) ? ps.reduce((s, p) => s + (p.finalWeightMg ?? 0), 0) : undefined;
   const st = orderStatus(db, o);
-  const waText = `Dear ${c?.name}, update from ${db.settings.company.name}: your order ${o.number} (${o.title}) is now “${st?.label}”. ${Math.round(prog * 100)}% complete. Thank you!`;
+  const waText = `Dear ${c?.name}, update from ${PRINT_NAME}: your order ${o.number} (${o.title}) is now “${st?.label}”. ${Math.round(prog * 100)}% complete. Thank you!`;
 
   const milestones = [
     { icon: ClipboardList, label: "Order received", at: o.orderDate, done: true },

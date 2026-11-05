@@ -3,6 +3,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Download, PackageCheck, ScrollText, Share2, Truck, Package } from "lucide-react";
 import { useCan, useDB } from "@/lib/store";
+import { PRINT_NAME } from "@/lib/shipping";
 import { coverPhoto, customerOf, orderOf, pieceOf, piecesOf } from "@/lib/queries";
 import { date, g, inr } from "@/lib/format";
 import { downloadPdf, sharePdf } from "@/lib/pdf-client";
@@ -131,7 +132,7 @@ export default function DeliveriesPage() {
                       variant="ghost"
                       aria-label="Share challan"
                       icon={<Share2 className="size-3.5" />}
-                      onClick={() => sharePdf("delivery-challan", c.id, cu?.phone, `Delivery challan ${c.number} from ${db.settings.company.name}`)}
+                      onClick={() => sharePdf("delivery-challan", c.id, cu?.phone, `Delivery challan ${c.number} from ${PRINT_NAME}`)}
                     />
                   </td>
                 </tr>
@@ -214,7 +215,7 @@ export default function DeliveriesPage() {
                       size="sm"
                       variant="ghost"
                       icon={<Share2 className="size-3.5" />}
-                      onClick={() => sharePdf("delivery-note", d.id, c?.phone, `Delivery note ${d.number} from ${db.settings.company.name}`)}
+                      onClick={() => sharePdf("delivery-note", d.id, c?.phone, `Delivery note ${d.number} from ${PRINT_NAME}`)}
                     />
                   </td>
                 </tr>

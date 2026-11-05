@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { barRuns, code128 } from "@/lib/barcode";
-import { isValidGstin, SHIPPER } from "@/lib/shipping";
+import { isValidGstin, PRINT_NAME, SHIPPER } from "@/lib/shipping";
 import * as ops from "@/lib/ops";
 import { act, run, useDB } from "@/lib/store";
 import type { Artisan, Customer, Piece, Vendor } from "@/lib/types";
@@ -911,7 +911,7 @@ function DeliveryBody({ open, onClose, orderId: fixedOrder }: { open: boolean; o
           title={del.number}
           sub={`${del.items.length} piece(s) · ${g(del.items.reduce((s, i) => s + i.weightMg, 0))} · ${del.receivedBy}`}
           phone={customer?.phone}
-          shareText={`Dear ${customer?.name}, your order ${order?.number} has been delivered (${del.number}). Thank you for choosing ${db.settings.company.name}!`}
+          shareText={`Dear ${customer?.name}, your order ${order?.number} has been delivered (${del.number}). Thank you for choosing ${PRINT_NAME}!`}
           onClose={onClose}
         />
       ) : (
@@ -1311,7 +1311,7 @@ function ChallanBody({ onClose, orderId: fixedOrder }: { open: boolean; onClose:
           title={ch.number}
           sub={`${ch.items.length} item(s) · ${g(ch.items.reduce((s, i) => s + i.weightMg, 0))} · ${inr(ch.items.reduce((s, i) => s + i.valueRs, 0))}`}
           phone={customer?.phone}
-          shareText={`Delivery challan ${ch.number} for order ${order?.number} from ${db.settings.company.name}.`}
+          shareText={`Delivery challan ${ch.number} for order ${order?.number} from ${PRINT_NAME}.`}
           onClose={onClose}
         />
       ) : (

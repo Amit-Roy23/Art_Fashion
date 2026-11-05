@@ -2,6 +2,7 @@
 // its live preview and the PDF renderer.
 import { liveWeight, orderOf } from "./queries";
 import type { DB, Piece, TagSettings } from "./types";
+import { PRINT_NAME } from "./shipping";
 
 // Sizes measured from the client's sample tags; adjustable in the tag designer.
 export const DEFAULT_TAG: TagSettings = {
@@ -76,7 +77,7 @@ export function tagLines(t: TagData, s: TagSettings) {
   if (s.showName) lines.push({ text: t.name });
   if (s.showWeight || s.showPurity)
     lines.push({ text: [s.showWeight ? `WT: ${(t.weightMg / 1000).toFixed(3)} g` : "", s.showPurity ? t.purity : ""].filter(Boolean).join(" · ") });
-  if (s.brand) lines.push({ text: `BRAND: ${s.brand}`, strong: !s.showPrice || !t.priceRs });
+  lines.push({ text: `BRAND: ${PRINT_NAME.toUpperCase()}`, strong: !s.showPrice || !t.priceRs });
   lines.push({ text: `M.NO: ${t.code}`, small: true });
   return lines;
 }

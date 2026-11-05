@@ -4,6 +4,7 @@ import { ArrowDown, ArrowUp, Building2, KeyRound, Layers, ListChecks, Lock, Plus
 import { toast } from "sonner";
 import { OpError, uid } from "@/lib/ops";
 import { resetDemo, run, useCan, useDB } from "@/lib/store";
+import { PRINT_NAME } from "@/lib/shipping";
 import type { DB, Stage, StatusOption } from "@/lib/types";
 import { cn } from "@/lib/format";
 import { Button, Empty, Field, Input, Modal, PageHeader, Panel, SectionTitle, Segmented, Select } from "@/components/ui";
@@ -418,8 +419,8 @@ function Toggle({ on, disabled, onClick }: { on: boolean; disabled?: boolean; on
 function Company({ db }: { db: DB }) {
   const c = db.settings.company;
   const [confirm, setConfirm] = useState(false);
-  const field = (k: keyof typeof c, label: string) => (
-    <Field label={label}>
+  const field = (k: keyof typeof c, label: string, hint?: string) => (
+    <Field label={label} hint={hint}>
       <Input value={c[k]} onChange={(e) => run((d) => void (d.settings.company[k] = e.target.value))} />
     </Field>
   );
@@ -436,7 +437,7 @@ function Company({ db }: { db: DB }) {
           }
         />
         <div className="grid gap-4 sm:grid-cols-2">
-          {field("name", "Business name")}
+          {field("name", "Business name (app only)", `Documents, labels, tags and messages always print “${PRINT_NAME}”.`)}
           {field("tagline", "Tagline")}
           {field("phone", "Phone")}
           {field("email", "Email")}
