@@ -19,6 +19,8 @@ export async function toJpeg(url: string, max = 700): Promise<string | null> {
   try {
     const img = new Image();
     img.decoding = "async";
+    // photos on Cloudinary (another site) must be loaded with CORS, or the canvas can't be read
+    if (/^https?:/.test(url) && !url.startsWith(location.origin)) img.crossOrigin = "anonymous";
     img.src = url;
     await img.decode();
     const scale = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));

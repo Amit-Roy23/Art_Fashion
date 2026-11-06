@@ -15,6 +15,7 @@ import { SHIPPER } from "@/lib/shipping";
 import type { DB, Settings, User } from "@/lib/types";
 import { DB_VERSION } from "@/lib/version";
 import { mongo } from "./mongo";
+import { cloudinaryConfig, uploadToCloudinary } from "./cloudinary";
 import { newId } from "./auth";
 
 type Entity = { id: string };
@@ -197,6 +198,15 @@ export async function savePhoto(dataUrl: string, by: string): Promise<string> {
   const bytes = Buffer.from(m[2], "base64");
   if (bytes.length > MAX_PHOTO_BYTES) throw new HttpError(413, "Photo is too large");
   const id = createHash("sha256").update(bytes).digest("hex").slice(0, 32);
+  const cloud = cloudinaryConfig();
+  if (cloud) {
+    try {
+      return await uploadToCloudinary(cloud, dataUrl, id);
+    } catch (e) {
+      // never lose a photo because the CDN is down or misconfigured: keep it in MongoDB instead
+      console.error(e);
+    }
+  }
   const db = await mongo();
   await photos(db).updateOne(
     { _id: id },
