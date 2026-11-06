@@ -22,7 +22,7 @@ export const DEFAULT_PERMISSIONS: Settings["permissions"] = {
   "settings.manage": { MANAGER: false, STAFF: false },
 };
 
-function baseSettings(): Settings {
+export function baseSettings(): Settings {
   return {
     company: {
       name: "Layek Jewels",

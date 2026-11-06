@@ -1,10 +1,11 @@
 "use client";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Camera, ClipboardList, Crown, FileText, Hammer, Scale, ShieldCheck, Smartphone, Sparkles, Truck, UserCog, Users } from "lucide-react";
-import { Ready } from "@/components/Providers";
+import { Loader, Ready } from "@/components/Providers";
 import { Wordmark } from "@/components/brand";
 import { Avatar, Panel } from "@/components/ui";
-import { login, useDB, useUser } from "@/lib/store";
+import { login, useDB, useStore, useUser } from "@/lib/store";
 import type { User } from "@/lib/types";
 import { cn } from "@/lib/format";
 
@@ -26,6 +27,21 @@ const ROLE_META = {
 const ORBIT = ["choker-emerald", "ring-solitaire", "jhumka-ruby", "bangle", "pendant-sapphire", "tikka", "necklace-ruby", "nath"];
 
 function LandingInner() {
+  const live = useStore((s) => s.mode === "live");
+  return live ? <LiveRedirect /> : <DemoLanding />;
+}
+
+/** Live mode: signed in already (Ready shows the login screen otherwise) — go to the right home. */
+function LiveRedirect() {
+  const me = useUser();
+  const router = useRouter();
+  useEffect(() => {
+    if (me) router.replace(me.role === "KARIGAR" ? "/k" : "/dashboard");
+  }, [me, router]);
+  return <Loader />;
+}
+
+function DemoLanding() {
   const db = useDB();
   const me = useUser();
   const router = useRouter();

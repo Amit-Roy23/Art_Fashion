@@ -12,9 +12,27 @@ export interface Ctx {
 export class OpError extends Error {}
 
 let idSeq = 0;
+// Id tape: the live store re-runs an operation when someone else saved first; replaying the
+// ids generated the first time keeps links (e.g. "open the new order") pointing at the same record.
+let tape: { ids: string[]; pos: number; replay: boolean } | null = null;
+export function withIdTape<R>(ids: string[], replay: boolean, fn: () => R): R {
+  const prev = tape;
+  tape = { ids, pos: 0, replay };
+  try {
+    return fn();
+  } finally {
+    tape = prev;
+  }
+}
 export function uid(prefix = "") {
+  if (tape?.replay && tape.pos < tape.ids.length) return tape.ids[tape.pos++];
   idSeq = (idSeq + 1) % 1e6;
-  return `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}${idSeq.toString(36)}`;
+  const id = `${prefix}${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}${idSeq.toString(36)}`;
+  if (tape) {
+    tape.ids.push(id);
+    tape.pos++;
+  }
+  return id;
 }
 
 function nextNumber(db: DB, key: string, prefix: string, at: string) {
@@ -393,7 +411,11 @@ export function reviewWork(db: DB, woId: string, input: { approve: boolean; note
 export function saveArtisan(db: DB, input: Omit<Artisan, "id" | "code" | "joinedAt" | "hue"> & { id?: string }, ctx: Ctx) {
   if (!input.name.trim()) throw new OpError("Name is required");
   if (input.id) {
-    Object.assign(get(db.artisans, input.id, "Karigar"), input);
+    const a = get(db.artisans, input.id, "Karigar");
+    Object.assign(a, input);
+    // the karigar signs in with this phone number, so keep their login in step
+    const u = db.users.find((x) => x.artisanId === a.id);
+    if (u) Object.assign(u, { name: a.name, phone: a.phone, title: a.speciality });
     return input.id;
   }
   const a: Artisan = { ...input, id: uid("k"), code: nextNumber(db, "artisan", "KAR", ctx.now), joinedAt: ctx.now, hue: Math.floor(Math.random() * 360) };

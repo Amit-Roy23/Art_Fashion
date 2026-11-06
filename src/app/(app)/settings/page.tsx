@@ -1,9 +1,10 @@
 "use client";
 import { useState } from "react";
-import { ArrowDown, ArrowUp, Building2, KeyRound, Layers, ListChecks, Lock, Plus, RotateCcw, Scale, Tags, Trash2, Truck } from "lucide-react";
+import { Download, ArrowDown, ArrowUp, Building2, KeyRound, Layers, ListChecks, Lock, Plus, RotateCcw, Scale, Tags, Trash2, Truck } from "lucide-react";
 import { toast } from "sonner";
 import { OpError, uid } from "@/lib/ops";
-import { resetDemo, run, useCan, useDB } from "@/lib/store";
+import { resetDemo, run, useCan, useDB, useStore, useUser } from "@/lib/store";
+import { UsersPanel } from "@/components/live";
 import { PRINT_NAME } from "@/lib/shipping";
 import type { DB, Stage, StatusOption } from "@/lib/types";
 import { cn } from "@/lib/format";
@@ -35,11 +36,17 @@ const STATUS_KEY = { order: "orderStatuses", work: "workStatuses", job: "jobStat
 export default function SettingsPage() {
   const db = useDB();
   const allowed = useCan("settings.manage");
-  const [tab, setTab] = useState<"production" | "statuses" | "masters" | "access" | "company">("production");
+  const live = useStore((s) => s.mode === "live");
+  const me = useUser();
+  const [tab, setTab] = useState<"production" | "statuses" | "masters" | "access" | "users" | "company">("production");
   if (!allowed)
     return (
       <Panel>
-        <Empty icon={<Lock className="size-7" />} title="Owner only" sub="Settings are managed by the owner. Switch to the Owner role to try them." />
+        <Empty
+          icon={<Lock className="size-7" />}
+          title="Owner only"
+          sub={live ? "Settings are managed by the owner." : "Settings are managed by the owner. Switch to the Owner role to try them."}
+        />
       </Panel>
     );
   return (
@@ -58,14 +65,16 @@ export default function SettingsPage() {
           { value: "statuses", label: "Status options" },
           { value: "masters", label: "Masters & vendors" },
           { value: "access", label: "Access" },
-          { value: "company", label: "Company & demo" },
+          ...(live && me?.role === "OWNER" ? [{ value: "users" as const, label: "Users & logins" }] : []),
+          { value: "company", label: live ? "Company & backup" : "Company & demo" },
         ]}
       />
       {tab === "production" && <StagesEditor db={db} />}
       {tab === "statuses" && <StatusEditor db={db} />}
       {tab === "masters" && <Masters db={db} />}
       {tab === "access" && <Access db={db} />}
-      {tab === "company" && <Company db={db} />}
+      {tab === "users" && me && <UsersPanel db={db} me={me} />}
+      {tab === "company" && <Company db={db} live={live} />}
     </div>
   );
 }
@@ -416,7 +425,7 @@ function Toggle({ on, disabled, onClick }: { on: boolean; disabled?: boolean; on
   );
 }
 
-function Company({ db }: { db: DB }) {
+function Company({ db, live }: { db: DB; live: boolean }) {
   const c = db.settings.company;
   const [confirm, setConfirm] = useState(false);
   const field = (k: keyof typeof c, label: string, hint?: string) => (
@@ -466,21 +475,45 @@ function Company({ db }: { db: DB }) {
             />
           </Field>
         </Panel>
-        <Panel className="p-5">
-          <SectionTitle
-            kicker="Demo"
-            title={
-              <span className="flex items-center gap-2">
-                <ListChecks className="size-5 text-gold" />
-                Demo data
-              </span>
-            }
-          />
-          <p className="text-sm text-muted">Data is stored privately in this browser. Reset to bring back the original sample orders, karigars and photos.</p>
-          <Button className="mt-4" variant="danger" icon={<RotateCcw className="size-4" />} onClick={() => setConfirm(true)}>
-            Reset demo data
-          </Button>
-        </Panel>
+        {live ? (
+          <Panel className="p-5">
+            <SectionTitle
+              kicker="Safety"
+              title={
+                <span className="flex items-center gap-2">
+                  <Download className="size-5 text-gold" />
+                  Backup
+                </span>
+              }
+            />
+            <p className="text-sm text-muted">
+              Downloads every order, piece, karigar, work order, delivery and setting as one file. Keep a copy every week (photos stay on the server).
+            </p>
+            <a className="gold-fill mt-4 inline-flex h-10 items-center gap-2 rounded-full px-4 text-sm font-semibold" href="/api/backup" download>
+              <Download className="size-4" /> Download backup
+            </a>
+          </Panel>
+        ) : (
+          <>
+            <Panel className="p-5">
+              <SectionTitle
+                kicker="Demo"
+                title={
+                  <span className="flex items-center gap-2">
+                    <ListChecks className="size-5 text-gold" />
+                    Demo data
+                  </span>
+                }
+              />
+              <p className="text-sm text-muted">
+                Data is stored privately in this browser. Reset to bring back the original sample orders, karigars and photos.
+              </p>
+              <Button className="mt-4" variant="danger" icon={<RotateCcw className="size-4" />} onClick={() => setConfirm(true)}>
+                Reset demo data
+              </Button>
+            </Panel>
+          </>
+        )}
       </div>
       <Modal
         open={confirm}

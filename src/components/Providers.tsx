@@ -5,6 +5,7 @@ import { LightboxProvider } from "./photos";
 import { RefreshCw } from "lucide-react";
 import { Logo } from "./brand";
 import { Button } from "./ui";
+import { LoginScreen, SetupScreen } from "./live";
 
 export function Providers({ children }: { children: ReactNode }) {
   useEffect(() => {
@@ -13,11 +14,13 @@ export function Providers({ children }: { children: ReactNode }) {
   return <LightboxProvider>{children}</LightboxProvider>;
 }
 
-/** Renders children only once the demo database is loaded. */
+/** Renders children only once the database is loaded (live mode: after signing in). */
 export function Ready({ children }: { children: ReactNode }) {
   const status = useStore((s) => s.status);
   const error = useStore((s) => s.error);
   if (status === "ready") return <>{children}</>;
+  if (status === "login") return <LoginScreen />;
+  if (status === "setup") return <SetupScreen />;
   if (status === "error")
     return (
       <div className="relative z-10 grid min-h-dvh place-items-center p-6 text-center">

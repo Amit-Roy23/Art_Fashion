@@ -96,6 +96,8 @@ export interface User {
   title: string;
   phone: string;
   artisanId?: string;
+  /** live mode: false = login disabled */
+  active?: boolean;
 }
 
 export interface Customer {

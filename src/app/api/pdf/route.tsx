@@ -3,6 +3,8 @@
 //                 delivery / road challan, order summary (items with photos, weights, values)
 //  • "register" – A4 landscape tables: karigar work register, vendor register, karigar-wise lists
 // The client posts the data with photos already embedded as JPEG/PNG data URLs.
+import { isLive } from "@/server/mongo";
+import { currentUser } from "@/server/session";
 import { Document, Font, Image, Page, Path, Rect, StyleSheet, Svg, Text, View, renderToBuffer } from "@react-pdf/renderer";
 import QRCode from "qrcode";
 import { BRAND_LOGO_PNG, BRAND_LOGO_RATIO } from "@/lib/brand-logo";
@@ -687,6 +689,7 @@ function Label({ d }: { d: LabelPayload }) {
 const isImage = (u: unknown) => typeof u === "string" && /^data:image\/(jpeg|jpg|png);base64,/.test(u);
 
 export async function POST(req: Request) {
+  if (isLive() && !(await currentUser(req))) return new Response("Please sign in again", { status: 401 });
   let d: DocPayload | RegisterPayload | TagsPayload | LabelPayload;
   try {
     d = await req.json();
