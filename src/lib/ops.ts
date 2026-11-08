@@ -233,6 +233,112 @@ export function createOrder(db: DB, input: NewOrder, ctx: Ctx) {
   return order.id;
 }
 
+export interface OrderEdit {
+  title: string;
+  orderDate: string;
+  dueDate: string;
+  priority: Order["priority"];
+  metal: string;
+  /** changes to existing pieces (delivered pieces are left as they are) */
+  pieces: (Pick<Piece, "id" | "name" | "category" | "purity" | "size" | "qty" | "specs" | "stones" | "estWeightMg" | "valueRs">)[];
+  /** new pieces (project orders only) */
+  addPieces: NewPiece[];
+}
+
+/** Customer asked for a change while the order is in progress. Logs exactly what changed, with the reason. */
+export function editOrder(db: DB, orderId: string, input: OrderEdit, remarks: string, ctx: Ctx) {
+  const o = get(db.orders, orderId, "Order");
+  const why = requireRemarks(remarks, "Remarks (reason for the change)");
+  if (!input.title.trim()) throw new OpError("Order title is required");
+  const metal = db.settings.metals.find((m) => m.name === input.metal);
+  if (!metal) throw new OpError("Choose the metal for this order");
+  if (input.addPieces.length && o.type !== "PROJECT") throw new OpError("Only project / set orders can have more pieces");
+  const wt = (mg?: number) => (mg ? `${(mg / 1000).toFixed(3)} g` : "—");
+  const day = (iso: string) => iso.slice(0, 10).split("-").reverse().join("/");
+  const changes: string[] = [];
+  const note = (label: string, a: unknown, b: unknown) => {
+    const x = a === undefined || a === "" ? "—" : String(a);
+    const y = b === undefined || b === "" ? "—" : String(b);
+    if (x !== y) changes.push(`${label}: ${x} → ${y}`);
+  };
+
+  note("Title", o.title, input.title.trim());
+  note("Order date", day(o.orderDate), day(input.orderDate));
+  note("Due", day(o.dueDate), day(input.dueDate));
+  note("Priority", o.priority, input.priority);
+  note("Metal", o.metal, input.metal);
+  const metalChanged = o.metal !== input.metal;
+  Object.assign(o, { title: input.title.trim(), orderDate: input.orderDate, dueDate: input.dueDate, priority: input.priority, metal: input.metal });
+
+  for (const e of input.pieces) {
+    const p = get(db.pieces, e.id, "Piece");
+    if (p.orderId !== o.id || p.location === "DELIVERED") continue;
+    const tag = p.code.split("-").pop();
+    if (!e.name.trim()) throw new OpError(`Piece ${tag}: name is required`);
+    if (!(e.estWeightMg > 0)) throw new OpError(`Piece ${tag}: estimated weight is required`);
+    // a purity removed from the masters later stays valid on old pieces, unless the metal changes
+    if (!metal.purities.includes(e.purity) && (metalChanged || e.purity !== p.purity)) throw new OpError(`Piece ${tag}: choose a ${metal.name} purity`);
+    const next = {
+      name: e.name.trim(),
+      category: e.category,
+      purity: e.purity,
+      size: e.size?.trim() || undefined,
+      qty: Math.max(1, Math.round(e.qty) || 1),
+      specs: e.specs.trim(),
+      stones: e.stones?.trim() || undefined,
+      estWeightMg: Math.round(e.estWeightMg),
+      valueRs: e.valueRs && e.valueRs > 0 ? Math.round(e.valueRs) : undefined,
+    };
+    note(`${tag} name`, p.name, next.name);
+    note(`${tag} category`, p.category, next.category);
+    note(`${tag} purity`, p.purity, next.purity);
+    note(`${tag} size`, p.size, next.size);
+    note(`${tag} qty`, p.qty, next.qty);
+    note(`${tag} stones`, p.stones, next.stones);
+    note(`${tag} est. weight`, wt(p.estWeightMg), wt(next.estWeightMg));
+    note(`${tag} value`, p.valueRs ? `₹${p.valueRs}` : "", next.valueRs ? `₹${next.valueRs}` : "");
+    if (p.specs.trim() !== next.specs) changes.push(`${tag} specifications updated`);
+    Object.assign(p, next);
+  }
+
+  const existing = db.pieces.filter((p) => p.orderId === o.id);
+  input.addPieces.forEach((np, i) => {
+    if (!np.name.trim()) throw new OpError(`New piece ${i + 1}: name is required`);
+    if (!(np.estWeightMg > 0)) throw new OpError(`New piece ${i + 1}: estimated weight is required`);
+    if (!metal.purities.includes(np.purity)) throw new OpError(`New piece ${i + 1}: choose a ${metal.name} purity`);
+    const letter = String.fromCharCode(65 + existing.length + i);
+    db.pieces.push({
+      id: uid("pc"),
+      code: `${o.number}-${letter}`,
+      orderId: o.id,
+      name: np.name.trim(),
+      category: np.category,
+      purity: np.purity,
+      size: np.size?.trim() || undefined,
+      qty: np.qty || 1,
+      specs: np.specs,
+      stones: np.stones?.trim() || undefined,
+      estWeightMg: Math.round(np.estWeightMg),
+      valueRs: np.valueRs && np.valueRs > 0 ? Math.round(np.valueRs) : undefined,
+      stageId: db.settings.stages[0]?.id ?? "",
+      location: "OFFICE",
+      photos: stamp(np.photos, "reference", ctx),
+      remarks: why,
+      receivedAt: ctx.now,
+    });
+    changes.push(`Piece ${letter} added: ${np.name.trim()} · ${wt(np.estWeightMg)}`);
+  });
+
+  if (!changes.length) throw new OpError("Nothing was changed");
+  log(db, ctx, {
+    icon: "note",
+    text: `Order ${o.number} edited · ${changes.join(" · ")}`,
+    remarks: why,
+    orderId: o.id,
+  });
+  syncOrder(db, o.id, ctx);
+}
+
 export function updateOrderStatus(db: DB, orderId: string, statusId: string, remarks: string, ctx: Ctx) {
   const o = get(db.orders, orderId, "Order");
   const r = requireRemarks(remarks);

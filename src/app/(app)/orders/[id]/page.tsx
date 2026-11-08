@@ -19,6 +19,7 @@ import {
   ScrollText,
   Tag,
   Package,
+  Pencil,
 } from "lucide-react";
 import { useCan, useDB } from "@/lib/store";
 import { PRINT_NAME } from "@/lib/shipping";
@@ -28,15 +29,16 @@ import { downloadPdf } from "@/lib/pdf-client";
 import { Bar, Button, Empty, KeyVal, Panel, SectionTitle } from "@/components/ui";
 import { DueChip, MetalPill, OrderStatusPill, PieceCard, PriorityBadge, Timeline, WeightDelta, WorkStatusPill } from "@/components/domain";
 import { PhotoGrid, Thumb } from "@/components/photos";
-import { AddPhotosDialog, AddressLabelDialog, ChallanDialog, DeliveryDialog, NoteDialog, StatusDialog } from "@/components/actions";
+import { AddPhotosDialog, AddressLabelDialog, ChallanDialog, DeliveryDialog, EditOrderDialog, NoteDialog, StatusDialog } from "@/components/actions";
 import { activityFor } from "@/lib/queries";
 
 export default function OrderDetail() {
   const { id } = useParams<{ id: string }>();
   const db = useDB();
   const canStatus = useCan("orders.status");
+  const canEdit = useCan("orders.create");
   const canDeliver = useCan("delivery.create");
-  const [dlg, setDlg] = useState<null | "status" | "photos" | "note" | "deliver" | "challan">(null);
+  const [dlg, setDlg] = useState<null | "status" | "photos" | "note" | "deliver" | "challan" | "edit">(null);
   const [label, setLabel] = useState<null | { challanId?: string }>(null);
   const o = db.orders.find((x) => x.id === id);
   if (!o)
@@ -130,6 +132,11 @@ export default function OrderDetail() {
             {canDeliver && cat !== "DONE" && cat !== "CANCELLED" && (
               <Button variant="soft" icon={<ScrollText className="size-4" />} onClick={() => setDlg("challan")}>
                 Delivery challan
+              </Button>
+            )}
+            {canEdit && cat !== "DONE" && cat !== "CANCELLED" && (
+              <Button variant="soft" icon={<Pencil className="size-4" />} onClick={() => setDlg("edit")}>
+                Edit order
               </Button>
             )}
             {canStatus && (
@@ -304,6 +311,7 @@ export default function OrderDetail() {
       <StatusDialog open={dlg === "status"} onClose={() => setDlg(null)} kind="order" id={o.id} />
       <AddPhotosDialog open={dlg === "photos"} onClose={() => setDlg(null)} target={{ orderId: o.id }} />
       <NoteDialog open={dlg === "note"} onClose={() => setDlg(null)} target={{ orderId: o.id }} />
+      <EditOrderDialog open={dlg === "edit"} onClose={() => setDlg(null)} orderId={o.id} />
       <DeliveryDialog open={dlg === "deliver"} onClose={() => setDlg(null)} orderId={o.id} />
       <ChallanDialog open={dlg === "challan"} onClose={() => setDlg(null)} orderId={o.id} />
       <AddressLabelDialog open={!!label} onClose={() => setLabel(null)} orderId={o.id} challanId={label?.challanId} />

@@ -24,6 +24,9 @@ import {
   Undo2,
   UserPlus,
   Workflow,
+  Pencil,
+  Plus,
+  Lock,
 } from "lucide-react";
 import { toast } from "sonner";
 import { barRuns, code128 } from "@/lib/barcode";
@@ -1087,6 +1090,236 @@ function NoteBody({ open, onClose, target }: { open: boolean; onClose: () => voi
   );
 }
 
+// ─────────────────────────────────────────────── edit order
+interface PieceDraft {
+  id?: string;
+  locked?: boolean;
+  name: string;
+  category: string;
+  purity: string;
+  size: string;
+  qty: string;
+  est: string;
+  value: string;
+  stones: string;
+  specs: string;
+  photos: DraftPhoto[];
+}
+
+function EditOrderBody({ open, onClose, orderId }: { open: boolean; onClose: () => void; orderId: string }) {
+  const db = useDB();
+  const o = orderOf(db, orderId)!;
+  const metals = db.settings.metals;
+  const puritiesOf = (m: string) => metals.find((x) => x.name === m)?.purities ?? [];
+  const [f, setF] = useState({
+    title: o.title,
+    orderDate: inputDate(o.orderDate),
+    dueDate: inputDate(o.dueDate),
+    priority: o.priority,
+    metal: o.metal,
+  });
+  const [pieces, setPieces] = useState<PieceDraft[]>(() =>
+    piecesOf(db, o.id).map((p) => ({
+      id: p.id,
+      locked: p.location === "DELIVERED",
+      name: p.name,
+      category: p.category,
+      purity: p.purity,
+      size: p.size ?? "",
+      qty: String(p.qty),
+      est: (p.estWeightMg / 1000).toFixed(3),
+      value: p.valueRs ? String(p.valueRs) : "",
+      stones: p.stones ?? "",
+      specs: p.specs,
+      photos: [],
+    })),
+  );
+  const [why, setWhy] = useState("");
+  const upd = (i: number, patch: Partial<PieceDraft>) => setPieces(pieces.map((p, j) => (j === i ? { ...p, ...patch } : p)));
+  const pickMetal = (metal: string) => {
+    setF({ ...f, metal });
+    const list = puritiesOf(metal);
+    setPieces(pieces.map((p) => (p.locked || list.includes(p.purity) ? p : { ...p, purity: list.find((x) => x.startsWith("22K")) ?? list[0] ?? "" })));
+  };
+  const addPiece = () =>
+    setPieces([
+      ...pieces,
+      {
+        name: "",
+        category: db.settings.categories[0],
+        purity: puritiesOf(f.metal).find((x) => x.startsWith("22K")) ?? puritiesOf(f.metal)[0] ?? "",
+        size: "",
+        qty: "1",
+        est: "",
+        value: "",
+        stones: "",
+        specs: "",
+        photos: [],
+      },
+    ]);
+  const toPiece = (p: PieceDraft) => ({
+    name: p.name,
+    category: p.category,
+    purity: p.purity,
+    size: p.size,
+    qty: +p.qty || 1,
+    specs: p.specs,
+    stones: p.stones,
+    estWeightMg: toMg(p.est),
+    valueRs: p.value ? Math.round(+p.value) : undefined,
+  });
+  const save = () =>
+    run(
+      (d, ctx) =>
+        ops.editOrder(
+          d,
+          o.id,
+          {
+            ...f,
+            orderDate: f.orderDate === inputDate(o.orderDate) ? o.orderDate : fromInputDate(f.orderDate),
+            dueDate: f.dueDate === inputDate(o.dueDate) ? o.dueDate : fromInputDate(f.dueDate),
+            pieces: pieces.filter((p) => p.id && !p.locked).map((p) => ({ id: p.id!, ...toPiece(p) })),
+            addPieces: pieces.filter((p) => !p.id).map((p) => ({ ...toPiece(p), remarks: why, photos: p.photos.map((x) => ({ ...x, kind: "design" as const })) })),
+          },
+          why,
+          ctx,
+        ),
+      "Order updated",
+    ) && onClose();
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      wide
+      title={`Edit order ${o.number}`}
+      sub="For changes the customer asks for during production. Every change is recorded in the order history with the reason."
+      icon={<Pencil className="size-5" />}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button variant="gold" onClick={save}>
+            Save changes
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-5">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Order title" required className="sm:col-span-2">
+            <Input value={f.title} onChange={(e) => setF({ ...f, title: e.target.value })} />
+          </Field>
+          <Field label="Order date">
+            <Input type="date" value={f.orderDate} onChange={(e) => setF({ ...f, orderDate: e.target.value })} />
+          </Field>
+          <Field label="Delivery due">
+            <Input type="date" value={f.dueDate} onChange={(e) => setF({ ...f, dueDate: e.target.value })} />
+          </Field>
+          <Field label="Priority">
+            <Select value={f.priority} onChange={(e) => setF({ ...f, priority: e.target.value as typeof f.priority })}>
+              <option>Normal</option>
+              <option>Urgent</option>
+              <option>VIP</option>
+            </Select>
+          </Field>
+          <Field label="Metal">
+            <Select value={f.metal} onChange={(e) => pickMetal(e.target.value)}>
+              {metals.map((m) => (
+                <option key={m.name}>{m.name}</option>
+              ))}
+            </Select>
+          </Field>
+        </div>
+
+        {pieces.map((p, i) => {
+          const letter = String.fromCharCode(65 + i);
+          const purities = puritiesOf(f.metal);
+          return (
+            <div key={p.id ?? `new-${i}`} className="rounded-2xl border border-line bg-panel p-4">
+              <div className="mb-3 flex items-center gap-2">
+                <span className="font-display text-lg font-semibold">
+                  <span className="text-gold">{letter}.</span> {p.name || "New piece"}
+                </span>
+                {!p.id && <span className="rounded-full bg-gold/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-gold">New</span>}
+                {p.locked && (
+                  <span className="ml-auto inline-flex items-center gap-1 text-xs text-faint">
+                    <Lock className="size-3.5" /> Delivered — can&apos;t be changed
+                  </span>
+                )}
+                {!p.id && (
+                  <Button size="sm" variant="ghost" className="ml-auto" onClick={() => setPieces(pieces.filter((_, j) => j !== i))}>
+                    Remove
+                  </Button>
+                )}
+              </div>
+              <fieldset disabled={p.locked} className="grid gap-3 disabled:opacity-60 sm:grid-cols-4">
+                <Field label="Piece name" required className="sm:col-span-2">
+                  <Input value={p.name} onChange={(e) => upd(i, { name: e.target.value })} />
+                </Field>
+                <Field label="Category">
+                  <Select value={p.category} onChange={(e) => upd(i, { category: e.target.value })}>
+                    {[...new Set([...db.settings.categories, p.category])].map((c) => (
+                      <option key={c}>{c}</option>
+                    ))}
+                  </Select>
+                </Field>
+                <Field label={`Purity (${f.metal})`}>
+                  <Select value={p.purity} onChange={(e) => upd(i, { purity: e.target.value })}>
+                    {[...new Set([...purities, ...(purities.includes(p.purity) || !p.purity ? [] : [p.purity])])].map((c) => (
+                      <option key={c}>{c}</option>
+                    ))}
+                  </Select>
+                </Field>
+                <Field label="Est. weight (g)" required>
+                  <Input type="number" step="0.001" inputMode="decimal" value={p.est} onChange={(e) => upd(i, { est: e.target.value })} className="tabular" />
+                </Field>
+                <Field label="Est. value (₹)">
+                  <Input type="number" min="0" inputMode="numeric" value={p.value} onChange={(e) => upd(i, { value: e.target.value })} className="tabular" />
+                </Field>
+                <Field label="Qty">
+                  <Input type="number" min="1" value={p.qty} onChange={(e) => upd(i, { qty: e.target.value })} />
+                </Field>
+                <Field label="Size">
+                  <Input value={p.size} onChange={(e) => upd(i, { size: e.target.value })} />
+                </Field>
+                <Field label="Stones" className="sm:col-span-2">
+                  <Input value={p.stones} onChange={(e) => upd(i, { stones: e.target.value })} />
+                </Field>
+                <Field label="Specifications" className="sm:col-span-2">
+                  <Textarea value={p.specs} onChange={(e) => upd(i, { specs: e.target.value })} rows={2} />
+                </Field>
+              </fieldset>
+              {!p.id && (
+                <div className="mt-3">
+                  <PhotoInput value={p.photos} onChange={(v) => upd(i, { photos: v })} label="Design photos / sketch" look="sketch" />
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {o.type === "PROJECT" && (
+          <button
+            type="button"
+            onClick={addPiece}
+            className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-gold/40 py-3 text-sm font-semibold text-gold transition hover:bg-gold/5"
+          >
+            <Plus className="size-4" /> Add another piece
+          </button>
+        )}
+        <p className="text-xs text-faint">To add photos to existing pieces, use the Photos button on the order or piece page.</p>
+        <RemarksField
+          label="Reason for the change"
+          value={why}
+          onChange={setWhy}
+          chips={["Customer asked for a change", "Size changed by customer", "Due date extended", "Design change requested", "Weight revised"]}
+        />
+      </div>
+    </Modal>
+  );
+}
+
 // ─────────────────────────────────────────────── masters
 function CustomerBody({ open, onClose, customer, onSaved }: { open: boolean; onClose: () => void; customer?: Customer; onSaved?: (id: string) => void }) {
   const [f, setF] = useState(
@@ -1887,6 +2120,7 @@ export const DeliveryDialog = gate(DeliveryBody);
 export const MoveStageDialog = gate(MoveStageBody);
 export const AddPhotosDialog = gate(AddPhotosBody);
 export const NoteDialog = gate(NoteBody);
+export const EditOrderDialog = gate(EditOrderBody);
 export const CustomerDialog = gate(CustomerBody);
 export const ArtisanDialog = gate(ArtisanBody);
 export const ChallanDialog = gate(ChallanBody);

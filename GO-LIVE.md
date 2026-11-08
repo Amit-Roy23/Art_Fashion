@@ -21,7 +21,19 @@ Without `MONGODB_URI` the app runs as the browser-only demo. With it, the app ru
 | `AUTH_SECRET` | random, 32+ characters (`openssl rand -hex 32`) |
 | `BMS_SETUP_KEY` | any one-time key you choose |
 
+| `CLOUDINARY_URL` | *optional*, see below |
+
 Then **Deployments → Redeploy**.
+
+### Photos on Cloudinary (optional, recommended)
+Without Cloudinary, photos are stored in MongoDB. The free Atlas tier holds 512 MB, roughly 3,000 photos.
+With Cloudinary, photos go to Cloudinary's CDN, which has more space and loads faster on phones:
+1. Cloudinary Dashboard → **API Keys**. Copy the **API environment variable** (`cloudinary://KEY:SECRET@CLOUD_NAME`).
+2. Add it in Vercel as `CLOUDINARY_URL`. Optionally set `CLOUDINARY_FOLDER` (default `arts-fashion`).
+3. Redeploy. New photos go to Cloudinary. Photos already saved stay in MongoDB and keep working.
+
+If Cloudinary is ever down or the key is wrong, the photo is saved in MongoDB instead, so nothing is lost.
+Cloudinary photo links are long random addresses that nobody can guess. Anyone who is given a link can open it, though, without signing in.
 
 ## 3. First run
 Open the site. It shows **First-time setup**: enter the setup key, the owner's name, mobile number and password.
@@ -38,5 +50,6 @@ The free Atlas tier (M0) has no automatic backups.
 
 ## Limits to know
 - Each browser loads the whole database when it opens. That is fine for thousands of orders. Photos load only when shown.
+- Photos are not included in the backup file. They stay in MongoDB or Cloudinary.
 - Vercel's free Hobby plan is for non-commercial use. A business should use Vercel Pro.
 - Restoring from a backup file is not built into the app yet. It can be done with MongoDB tools if ever needed.
