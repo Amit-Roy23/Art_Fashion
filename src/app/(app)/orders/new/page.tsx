@@ -24,7 +24,7 @@ interface DraftPiece {
   photos: DraftPhoto[];
 }
 
-const STEPS = ["Customer", "Order details", "Pieces", "Review"];
+const STEPS = ["Customer", "Order & pieces", "Review"];
 
 export default function NewOrderPage() {
   const db = useDB();
@@ -79,7 +79,7 @@ export default function NewOrderPage() {
     if (s === 0 && !customerId) return "Choose a customer";
     if (s === 1 && !o.title.trim()) return "Give the order a title";
     if (s === 1 && o.remarks.trim().length < 3) return "Order remarks are mandatory";
-    if (s === 2) {
+    if (s === 1) {
       for (const [i, p] of pieces.entries()) {
         if (!p.name.trim()) return `Piece ${i + 1}: name is required`;
         if (!(toMg(p.est) > 0)) return `Piece ${i + 1}: estimated weight is required`;
@@ -136,7 +136,7 @@ export default function NewOrderPage() {
       <PageHeader
         kicker="New order"
         title="Book an order"
-        sub="Customer → details → pieces with photos & weights → confirm. Remarks are mandatory at every step."
+        sub="Customer → order details & pieces with photos & weights → confirm. Remarks are mandatory at every step."
       />
 
       {/* stepper */}
@@ -256,7 +256,11 @@ export default function NewOrderPage() {
             <Field label="Order title" required>
               <Input
                 value={o.title}
-                onChange={(e) => setO({ ...o, title: e.target.value })}
+                onChange={(e) => {
+                  // single piece: the piece is usually named like the order, so fill it in until it is edited
+                  if (o.type === "PIECE" && pieces.length === 1 && pieces[0].name === o.title) upd(0, { name: e.target.value });
+                  setO({ ...o, title: e.target.value });
+                }}
                 placeholder={o.type === "PROJECT" ? "e.g. Bridal kundan set" : "e.g. Solitaire engagement ring"}
               />
             </Field>
@@ -288,11 +292,11 @@ export default function NewOrderPage() {
               onChange={(v) => setO({ ...o, remarks: v })}
               chips={["Old gold adjusted in bill", "Advance received", "Customer will supply stones", "Copy design from photo", "Hallmark required"]}
             />
-          </div>
-        )}
 
-        {step === 2 && (
-          <div className="space-y-5">
+            <div className="flex items-center gap-3 pt-2">
+              <div className="text-[11px] font-bold uppercase tracking-[.2em] text-gold">{o.type === "PROJECT" ? "Pieces in this order" : "Piece details"}</div>
+              <div className="hairline flex-1" />
+            </div>
             {pieces.map((p, i) => (
               <div key={i} className="rounded-2xl border border-line bg-panel p-4">
                 <div className="mb-4 flex items-center justify-between">
@@ -392,7 +396,7 @@ export default function NewOrderPage() {
           </div>
         )}
 
-        {step === 3 && customer && (
+        {step === 2 && customer && (
           <div className="space-y-5">
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="rounded-2xl border border-line bg-panel p-4">
@@ -450,7 +454,7 @@ export default function NewOrderPage() {
           </Button>
           <div className="flex items-center gap-3">
             {err && <span className="hidden text-xs text-warn sm:block">{err}</span>}
-            {step < 3 ? (
+            {step < 2 ? (
               <Button variant="gold" disabled={!!err} onClick={() => setStep(step + 1)}>
                 Continue <ArrowRight className="size-4" />
               </Button>
