@@ -19,7 +19,10 @@ export function filterWork(db: DB, list: WorkOrder[], f: WorkFilter) {
 
 /** Karigar work register: one row per work order, with issue and submission dates and weights. */
 export function workRegister(db: DB, wos: WorkOrder[], opts: { title: string; fileName: string; subtitle: string; showKarigar?: boolean }): RegisterSpec {
-  const status = (w: WorkOrder) => db.settings.workStatuses.find((s) => s.id === w.statusId)?.label ?? "";
+  const status = (w: WorkOrder) =>
+    w.transfer
+      ? `Switched to ${artisanOf(db, w.transfer.toArtisanId)?.name ?? "another karigar"}`
+      : (db.settings.workStatuses.find((s) => s.id === w.statusId)?.label ?? "");
   const columns: RegisterSpec["columns"] = [
     { label: "WO no.", width: 1.25 },
     ...(opts.showKarigar ? [{ label: "Karigar", width: 1.3 }] : []),

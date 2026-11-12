@@ -27,6 +27,7 @@ import {
   Pencil,
   Plus,
   Lock,
+  ArrowLeftRight,
 } from "lucide-react";
 import { toast } from "sonner";
 import { barRuns, code128 } from "@/lib/barcode";
@@ -35,7 +36,7 @@ import * as ops from "@/lib/ops";
 import { act, run, useDB } from "@/lib/store";
 import type { Artisan, Customer, Piece, Vendor } from "@/lib/types";
 import { activeJW, activeWO, artisanLoad, artisanOf, customerOf, orderOf, pieceOf, piecesOf, stageOf, vendorOf } from "@/lib/queries";
-import { cn, diff, fromInputDate, g, inputDate, inr, toMg } from "@/lib/format";
+import { cn, date, diff, fromInputDate, g, inputDate, inr, toMg } from "@/lib/format";
 import { downloadLabels, downloadPdf, sharePdf, type DocKind } from "@/lib/pdf-client";
 import { Avatar, Button, Field, Input, Modal, Select, Textarea } from "./ui";
 import { PhotoGrid, PhotoInput, type DraftPhoto } from "./photos";
@@ -379,6 +380,174 @@ function IssueWorkBody({
             <Textarea value={f.instructions} onChange={(e) => setF({ ...f, instructions: e.target.value })} rows={2} />
           </Field>
           <RemarksField value={f.remarks} onChange={(v) => setF({ ...f, remarks: v })} />
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+// ─────────────────────────────────────────────── switch karigar
+function SwitchKarigarBody({ open, onClose, woId }: { open: boolean; onClose: () => void; woId: string }) {
+  const db = useDB();
+  const old = db.workOrders.find((w) => w.id === woId);
+  const piece = old && pieceOf(db, old.pieceId);
+  const from = old && artisanOf(db, old.artisanId);
+  const startWeight = old ? (old.issuedWeightMg / 1000).toFixed(3) : "";
+  const [f, setF] = useState(() => ({
+    artisanId: "",
+    stageId: old?.stageId ?? "",
+    due: inputDate(old && new Date(old.dueDate) > new Date() ? old.dueDate : plusDays(4)),
+    returned: startWeight,
+    issued: startWeight,
+    issuedEdited: false,
+    instructions: old?.instructions ?? "",
+    remarks: "",
+  }));
+  const [done, setDone] = useState<string | null>(null);
+  if (!old || !piece || !from) return null;
+  const submit = () => {
+    const id = act(
+      (d, ctx) =>
+        ops.switchKarigar(
+          d,
+          old.id,
+          {
+            artisanId: f.artisanId,
+            stageId: f.stageId,
+            dueDate: fromInputDate(f.due),
+            returnedWeightMg: toMg(f.returned),
+            issuedWeightMg: toMg(f.issued),
+            instructions: f.instructions,
+            remarks: f.remarks,
+          },
+          ctx,
+        ),
+      "Karigar switched",
+    );
+    if (id) setDone(id);
+  };
+  const wo = done ? db.workOrders.find((w) => w.id === done) : undefined;
+  const to = artisanOf(db, f.artisanId);
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={done ? "New work order ready" : "Switch karigar"}
+      sub={done ? undefined : `Take ${piece.code} back from ${from.name} and give it to another karigar. ${old.number} is closed with the weight handed back.`}
+      icon={<ArrowLeftRight className="size-5" />}
+      footer={
+        !done && (
+          <>
+            <Button variant="ghost" onClick={onClose}>
+              Cancel
+            </Button>
+            <Button variant="gold" icon={<ArrowLeftRight className="size-4" />} onClick={submit} disabled={!f.artisanId}>
+              Switch karigar
+            </Button>
+          </>
+        )
+      }
+    >
+      {done && wo ? (
+        <DocDone
+          kind="work-order"
+          id={wo.id}
+          title={wo.number}
+          sub={`Issued to ${to?.name} · ${g(wo.issuedWeightMg)} · replaces ${old.number}`}
+          phone={to?.phone}
+          shareText={`Work order ${wo.number} for ${piece.name} (${piece.code}). Issued weight ${g(wo.issuedWeightMg)}. Please check the attached PDF.`}
+          onClose={onClose}
+        />
+      ) : (
+        <div className="space-y-4">
+          <PieceHeader piece={piece} />
+          <div className="flex items-center gap-3 rounded-2xl border border-line bg-panel p-3">
+            <Avatar name={from.name} hue={from.hue} size={34} />
+            <div className="min-w-0 flex-1">
+              <div className="text-[10px] font-bold uppercase tracking-widest text-faint">Now with</div>
+              <div className="truncate text-sm font-semibold">
+                {from.name} · {old.number}
+              </div>
+            </div>
+            <div className="text-right text-xs text-muted">
+              Issued <b className="tabular text-text">{g(old.issuedWeightMg)}</b>
+              <div>{date(old.issuedAt)}</div>
+            </div>
+          </div>
+          <WeightField
+            label={`Weight received back from ${from.name}`}
+            value={f.returned}
+            onChange={(v) => setF({ ...f, returned: v, issued: f.issuedEdited ? f.issued : v })}
+            baseMg={old.issuedWeightMg}
+            baseLabel="issued"
+          />
+          <div>
+            <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[.14em] text-muted">
+              New karigar <span className="text-gold">*</span>
+            </div>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {db.artisans
+                .filter((a) => a.active && a.id !== from.id)
+                .map((a) => {
+                  const load = artisanLoad(db, a.id);
+                  return (
+                    <button
+                      key={a.id}
+                      type="button"
+                      onClick={() => setF({ ...f, artisanId: a.id })}
+                      className={cn(
+                        "flex items-center gap-2.5 rounded-xl border p-2.5 text-left transition",
+                        f.artisanId === a.id ? "border-gold bg-gold/10" : "border-line bg-panel hover:border-line-2",
+                      )}
+                    >
+                      <Avatar name={a.name} hue={a.hue} size={34} />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-semibold">{a.name}</span>
+                        <span className="block truncate text-[11px] text-muted">{a.speciality}</span>
+                      </span>
+                      <span
+                        className={cn(
+                          "tabular rounded-full px-2 py-0.5 text-[10px] font-bold",
+                          load.open.length >= 4 ? "bg-danger/15 text-danger" : "bg-panel-2 text-muted",
+                        )}
+                      >
+                        {load.open.length} open
+                      </span>
+                    </button>
+                  );
+                })}
+            </div>
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Production stage" required>
+              <Select value={f.stageId} onChange={(e) => setF({ ...f, stageId: e.target.value })}>
+                {db.settings.stages.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <Field label="Due date" required>
+              <Input type="date" value={f.due} onChange={(e) => setF({ ...f, due: e.target.value })} />
+            </Field>
+          </div>
+          <WeightField
+            label="Issued weight to the new karigar"
+            value={f.issued}
+            onChange={(v) => setF({ ...f, issued: v, issuedEdited: true })}
+            baseMg={toMg(f.returned) || undefined}
+            baseLabel="received back"
+          />
+          <Field label="Instructions for the new karigar">
+            <Textarea value={f.instructions} onChange={(e) => setF({ ...f, instructions: e.target.value })} rows={2} />
+          </Field>
+          <RemarksField
+            label="Reason for switching"
+            value={f.remarks}
+            onChange={(v) => setF({ ...f, remarks: v })}
+            chips={["Karigar on leave", "Karigar overloaded", "Needs a specialist", "Quality issue", "Delay in work"]}
+          />
         </div>
       )}
     </Modal>
@@ -2109,6 +2278,7 @@ export function ActionTile({ icon, title, sub, onClick, primary }: { icon: React
   );
 }
 export const IssueWorkDialog = gate(IssueWorkBody);
+export const SwitchKarigarDialog = gate(SwitchKarigarBody);
 export const ReviewDialog = gate(ReviewBody);
 export const StatusDialog = gate(StatusBody);
 export const ProgressDialog = gate(ProgressBody);

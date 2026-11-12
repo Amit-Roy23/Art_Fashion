@@ -423,6 +423,65 @@ export function issueWorkOrder(
   return wo.id;
 }
 
+/**
+ * Takes work back from one karigar and gives it to another. The old work order is closed with the
+ * weight the karigar handed back (so their metal account balances); a new work order is issued.
+ */
+export function switchKarigar(
+  db: DB,
+  woId: string,
+  input: { artisanId: string; stageId: string; dueDate: string; returnedWeightMg: number; issuedWeightMg: number; instructions: string; remarks: string },
+  ctx: Ctx,
+) {
+  const old = get(db.workOrders, woId, "Work order");
+  const cat = workCategory(db, old.statusId);
+  if (cat === "DONE") throw new OpError(`${old.number} is already closed`);
+  if (cat === "SUBMITTED") throw new OpError(`${old.number} is submitted — review it first (send it back for rework to switch karigar)`);
+  const p = get(db.pieces, old.pieceId, "Piece");
+  const from = get(db.artisans, old.artisanId, "Karigar");
+  const to = get(db.artisans, input.artisanId, "New karigar");
+  if (to.id === from.id) throw new OpError("Choose a different karigar");
+  if (!to.active) throw new OpError(`${to.name} is not active`);
+  if (!(input.returnedWeightMg > 0)) throw new OpError(`Weight received back from ${from.name} is required`);
+  const r = requireRemarks(input.remarks, "Reason for switching");
+
+  old.statusId = statusByCategory(db.settings.workStatuses, "DONE");
+  old.submittedAt = ctx.now;
+  old.submittedWeightMg = Math.round(input.returnedWeightMg);
+  old.reviewedAt = ctx.now;
+  old.reviewNote = `Switched to ${to.name}: ${r}`;
+  const d = old.submittedWeightMg - old.issuedWeightMg;
+  log(db, ctx, {
+    icon: "assign",
+    text: `${p.code} taken back from ${from.name} · ${old.number} closed · received ${(old.submittedWeightMg / 1000).toFixed(3)} g (${d >= 0 ? "+" : ""}${(d / 1000).toFixed(3)} g)`,
+    remarks: r,
+    pieceId: p.id,
+    orderId: p.orderId,
+    artisanId: from.id,
+    weightMg: old.submittedWeightMg,
+  });
+
+  // back in the office for a moment, then issued to the new karigar
+  p.location = "OFFICE";
+  p.artisanId = undefined;
+  p.currentWeightMg = old.submittedWeightMg;
+  const id = issueWorkOrder(
+    db,
+    {
+      pieceId: p.id,
+      artisanId: to.id,
+      stageId: input.stageId,
+      dueDate: input.dueDate,
+      issuedWeightMg: input.issuedWeightMg,
+      instructions: input.instructions,
+      remarks: `Switched from ${from.name} (${old.number}): ${r}`,
+    },
+    ctx,
+  );
+  old.transfer = { toArtisanId: to.id, toWoId: id, at: ctx.now, reason: r };
+  return id;
+}
+
 export function updateWorkStatus(db: DB, woId: string, statusId: string, remarks: string, ctx: Ctx) {
   const wo = get(db.workOrders, woId, "Work order");
   const r = requireRemarks(remarks);
