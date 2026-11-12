@@ -51,6 +51,7 @@ export function OrderStatusPill({ order }: { order: Order }) {
 }
 export function WorkStatusPill({ wo }: { wo: WorkOrder }) {
   const db = useDB();
+  if (wo.transfer) return <Pill color="#9ca3af">Switched to {db.artisans.find((a) => a.id === wo.transfer!.toArtisanId)?.name ?? "another karigar"}</Pill>;
   const s = workStatus(db, wo);
   return <Pill color={s?.color}>{s?.label ?? "—"}</Pill>;
 }

@@ -207,6 +207,8 @@ export interface WorkOrder {
   submissionNote?: string;
   reviewedAt?: string;
   reviewNote?: string;
+  /** the work was taken back from this karigar and given to another one */
+  transfer?: { toArtisanId: string; toWoId: string; at: string; reason: string };
 }
 
 export interface JobWork {

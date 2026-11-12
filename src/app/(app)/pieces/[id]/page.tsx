@@ -17,6 +17,7 @@ import {
   Truck,
   Workflow,
   Tag,
+  ArrowLeftRight,
 } from "lucide-react";
 import { useCan, useDB } from "@/lib/store";
 import { activeJW, activeWO, activityFor, artisanOf, customerOf, orderOf, stageOf, vendorOf, workCategory } from "@/lib/queries";
@@ -36,6 +37,7 @@ import {
   ReadyDialog,
   ReceiveJobDialog,
   ReviewDialog,
+  SwitchKarigarDialog,
   SendJobDialog,
   StatusDialog,
 } from "@/components/actions";
@@ -53,7 +55,8 @@ type Dlg =
   | { wstatus: string }
   | { progress: string }
   | { receive: string }
-  | { jstatus: string };
+  | { jstatus: string }
+  | { switch: string };
 
 export default function PieceDetail() {
   const { id } = useParams<{ id: string }>();
@@ -217,6 +220,14 @@ export default function PieceDetail() {
                       title="Review submission"
                       sub={`${artisanOf(db, wo.artisanId)?.name} submitted ${g(wo.submittedWeightMg)}`}
                       onClick={() => setDlg({ review: wo.id })}
+                    />
+                  )}
+                  {canAssign && woCat !== "SUBMITTED" && (
+                    <ActionTile
+                      icon={<ArrowLeftRight className="size-5" />}
+                      title="Switch karigar"
+                      sub={`Now with ${artisanOf(db, wo.artisanId)?.name}`}
+                      onClick={() => setDlg({ switch: wo.id })}
                     />
                   )}
                   <ActionTile
@@ -393,6 +404,7 @@ export default function PieceDetail() {
       <AddPhotosDialog open={dlg === "photos"} onClose={() => setDlg(null)} target={{ pieceId: p.id }} />
       <NoteDialog open={dlg === "note"} onClose={() => setDlg(null)} target={{ pieceId: p.id }} />
       <DeliveryDialog open={dlg === "deliver"} onClose={() => setDlg(null)} orderId={order.id} />
+      {dlgObj && "switch" in dlgObj && <SwitchKarigarDialog open onClose={() => setDlg(null)} woId={dlgObj.switch} />}
       {dlgObj && "review" in dlgObj && <ReviewDialog open onClose={() => setDlg(null)} woId={dlgObj.review} />}
       {dlgObj && "wstatus" in dlgObj && <StatusDialog open onClose={() => setDlg(null)} kind="work" id={dlgObj.wstatus} />}
       {dlgObj && "progress" in dlgObj && <ProgressDialog open onClose={() => setDlg(null)} woId={dlgObj.progress} />}
