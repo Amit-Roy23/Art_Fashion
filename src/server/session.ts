@@ -1,7 +1,8 @@
 // Request helpers for the live-mode API routes.
 import type { User } from "@/lib/types";
 import { readSession } from "./auth";
-import { credentials, findUser, HttpError } from "./data";
+import { credentials, currentSettings, findUser, HttpError } from "./data";
+import { idleLimitMs } from "@/lib/autologout";
 import { isLive, mongo } from "./mongo";
 
 /** The signed-in user, or null. A password reset or a disabled account ends existing sessions. */
@@ -12,8 +13,15 @@ export async function currentUser(req: Request): Promise<User | null> {
   const cred = await credentials(db).findOne({ _id: s.uid });
   if (!cred || cred.sid !== s.sid) return null;
   const user = await findUser(s.uid);
-  return user && user.active !== false ? user : null;
+  if (!user || user.active === false) return null;
+  // signed out automatically after a period without activity (the browser reports activity to /api/auth/touch)
+  const limit = idleLimitMs(await currentSettings(), user.role);
+  if (limit && Date.now() - s.last > limit + IDLE_GRACE_MS) return null;
+  return user;
 }
+
+/** Allowance for a slow network between the browser's own timer and the server's check. */
+const IDLE_GRACE_MS = 30_000;
 
 export async function requireUser(req: Request): Promise<User> {
   const u = await currentUser(req);

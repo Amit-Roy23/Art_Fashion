@@ -86,6 +86,8 @@ export interface Settings {
   tag?: TagSettings;
   /** sender mobile printed on address labels */
   shipperMobile?: string;
+  /** sign people out after this long without using the app (live mode); missing = 15 min for office logins */
+  autoLogout?: { minutes: number; karigars: boolean };
   permissions: Permissions;
 }
 

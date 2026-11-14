@@ -29,13 +29,23 @@ export async function verifySecret(pw: string, stored: string) {
 const b64 = (s: string) => Buffer.from(s).toString("base64url");
 const sign = (body: string) => createHmac("sha256", secret()).update(body).digest("base64url");
 
-/** Session token: user id + login id + expiry, signed. The login id lets a password reset end old sessions. */
-export function createSession(uid: string, sid: string) {
-  const body = b64(JSON.stringify({ uid, sid, exp: Date.now() + SESSION_DAYS * 864e5 }));
+/**
+ * Session token: user id + login id + expiry + last activity, signed. The login id lets a password
+ * reset end old sessions; `last` lets the server sign people out after a period without activity.
+ */
+export function createSession(uid: string, sid: string, last = Date.now()) {
+  const body = b64(JSON.stringify({ uid, sid, exp: Date.now() + SESSION_DAYS * 864e5, last }));
   return body + "." + sign(body);
 }
 
-export function readSession(req: Request): { uid: string; sid: string } | null {
+export interface Session {
+  uid: string;
+  sid: string;
+  /** last time the person used the app (ms); 0 for sessions made before auto sign-out existed */
+  last: number;
+}
+
+export function readSession(req: Request): Session | null {
   const raw = (req.headers.get("cookie") ?? "").split(/;\s*/).find((c) => c.startsWith(COOKIE + "="));
   if (!raw) return null;
   const [body, sig] = raw.slice(COOKIE.length + 1).split(".");
@@ -44,7 +54,7 @@ export function readSession(req: Request): { uid: string; sid: string } | null {
   if (want.length !== sig.length || !timingSafeEqual(Buffer.from(want), Buffer.from(sig))) return null;
   try {
     const v = JSON.parse(Buffer.from(body, "base64url").toString());
-    return v.exp > Date.now() && typeof v.uid === "string" ? { uid: v.uid, sid: v.sid } : null;
+    return v.exp > Date.now() && typeof v.uid === "string" ? { uid: v.uid, sid: v.sid, last: Number(v.last) || 0 } : null;
   } catch {
     return null;
   }

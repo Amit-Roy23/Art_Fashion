@@ -30,6 +30,8 @@ export interface State {
   pending: number;
   /** live: last save attempt failed (offline / server down) */
   offline: boolean;
+  /** live: message shown on the sign-in screen (e.g. signed out for inactivity) */
+  notice?: string;
 }
 
 let state: State = { db: null, userId: null, status: "idle", mode: "demo", pending: 0, offline: false };
