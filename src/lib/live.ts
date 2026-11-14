@@ -9,6 +9,7 @@ import { applyDiff, computeDiff, isEmptyDiff, type Diff } from "./diff";
 import { OpError, withIdTape, type Ctx } from "./ops";
 import { getState, setState } from "./store";
 import type { DB, User } from "./types";
+import { idleLimitMs, minutesText } from "./autologout";
 
 type Op = (draft: DB, ctx: Ctx) => unknown;
 interface Job {
@@ -68,14 +69,25 @@ async function loadEverything() {
   const r = await api<{ rev: number; db: DB; user: User }>("/api/db");
   confirmed = r.db;
   rev = r.rev;
+  // changes made before an automatic sign-out are kept for the same person, and saved now
+  if (queue.length && keptFor !== r.user.id) queue.length = 0;
+  keptFor = null;
   me = r.user;
-  setState({ db: r.db, userId: r.user.id, status: "ready", error: undefined });
+  setState({ db: r.db, userId: r.user.id, status: "ready", error: undefined, notice: undefined });
   start();
+  markActive(true);
+  if (queue.length) {
+    refreshView();
+    void pump();
+  }
 }
 
 export async function signIn(phone: string, secret: string) {
   await api("/api/auth/login", { method: "POST", json: { phone, secret } });
   await loadEverything();
+  try {
+    localStorage.setItem(SIGNED_IN_KEY, String(Date.now())); // tells other open tabs
+  } catch {}
 }
 
 export async function setup(input: { key: string; name: string; phone: string; password: string }) {
@@ -89,11 +101,65 @@ export async function signOut() {
   location.assign("/");
 }
 
-function expired() {
-  queue.length = 0;
+/** Back to the sign-in screen. Unsaved changes are kept and saved if the same person signs in again. */
+function expired(notice = "Your session ended — please sign in again.") {
+  keptFor = queue.length ? (me?.id ?? null) : null;
+  if (!keptFor) queue.length = 0;
   confirmed = null;
-  setState({ status: "login", db: null, userId: null, pending: 0 });
-  toast.error("Your session ended — please sign in again.");
+  toast.dismiss(IDLE_TOAST);
+  setState({ status: "login", db: null, userId: null, pending: queue.length, notice });
+}
+
+// ─────────────────────────────────────────────── auto sign-out after inactivity
+// Activity = mouse, keyboard, touch or scrolling in any open tab. Background update checks don't count.
+// The server enforces the same limit, so a forgotten open tab can't keep a session alive.
+
+const ACTIVITY_KEY = "lj-last-activity";
+const SIGNED_IN_KEY = "lj-signed-in";
+const IDLE_TOAST = "idle-warning";
+let keptFor: string | null = null;
+let lastLocal = 0;
+let lastTouch = 0;
+
+function lastActivity() {
+  let shared = 0;
+  try {
+    shared = Number(localStorage.getItem(ACTIVITY_KEY)) || 0;
+  } catch {}
+  return Math.max(lastLocal, shared);
+}
+
+function markActive(force = false) {
+  const now = Date.now();
+  if (!force && now - lastLocal < 5000) return;
+  lastLocal = now;
+  toast.dismiss(IDLE_TOAST);
+  try {
+    localStorage.setItem(ACTIVITY_KEY, String(now));
+  } catch {}
+  // keep the server-side session alive, at most once a minute
+  if (getState().status === "ready" && (force || now - lastTouch > 60_000)) {
+    lastTouch = now;
+    api("/api/auth/touch", { method: "POST" }).catch((e) => e instanceof ApiError && e.status === 401 && expired());
+  }
+}
+
+function idleCheck() {
+  if (getState().status !== "ready" || !me || !confirmed) return;
+  const limit = idleLimitMs(confirmed.settings, me.role);
+  if (!limit) return;
+  const idle = Date.now() - lastActivity();
+  if (idle >= limit) {
+    const mins = Math.round(limit / 60_000);
+    api("/api/auth/logout", { method: "POST" }).catch(() => {});
+    expired(`You were signed out after ${minutesText(mins)} without activity. Please sign in again.`);
+  } else if (idle >= limit - 60_000) {
+    toast.warning("You will be signed out in 1 minute because of no activity.", {
+      id: IDLE_TOAST,
+      description: "Move the mouse or tap the screen to stay signed in.",
+      duration: 70_000,
+    });
+  }
 }
 
 // ─────────────────────────────────────────────── saving
@@ -261,7 +327,10 @@ async function check() {
     }
     if (getState().offline) setState({ offline: false });
   } catch (e) {
-    if (e instanceof ApiError && e.status === 401) expired();
+    if (e instanceof ApiError && e.status === 401) {
+      const limit = me && confirmed ? idleLimitMs(confirmed.settings, me.role) : 0;
+      expired(limit && Date.now() - lastActivity() >= limit - 60_000 ? `You were signed out after ${minutesText(Math.round(limit / 60_000))} without activity. Please sign in again.` : undefined);
+    }
   }
 }
 
@@ -269,6 +338,16 @@ function start() {
   if (started) return;
   started = true;
   setInterval(check, 15000);
+  setInterval(idleCheck, 5000);
+  const onActivity = () => markActive();
+  for (const ev of ["pointerdown", "pointermove", "keydown", "wheel", "touchstart", "scroll"])
+    window.addEventListener(ev, onActivity, { passive: true, capture: true });
+  // a phone waking up or a tab coming back: check the time at once
+  document.addEventListener("visibilitychange", idleCheck);
+  window.addEventListener("storage", (e) => {
+    // signed in again in another tab: this tab follows
+    if (e.key === SIGNED_IN_KEY && getState().status === "login") void loadEverything().catch(() => {});
+  });
   window.addEventListener("focus", check);
   document.addEventListener("visibilitychange", check);
   window.addEventListener("online", () => void pump());

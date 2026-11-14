@@ -150,6 +150,16 @@ export async function changesSince(since: number, until?: number): Promise<{ rev
   return { rev: top, diff };
 }
 
+let settingsCache: { at: number; value: Settings } | null = null;
+/** Current settings, cached for a few seconds (checked on every signed-in request). */
+export async function currentSettings(): Promise<Settings> {
+  if (settingsCache && Date.now() - settingsCache.at < 15000) return settingsCache.value;
+  const db = await mongo();
+  const value = ((await kv(db).findOne({ _id: "settings" }))?.doc as Settings) ?? baseSettings();
+  settingsCache = { at: Date.now(), value };
+  return value;
+}
+
 export async function findUser(id: string): Promise<User | null> {
   const db = await mongo();
   return ((await col(db, "users").findOne({ _id: id }))?.doc as User) ?? null;
@@ -434,6 +444,7 @@ export async function commit(user: User, baseRev: number, input: Diff): Promise<
           })),
         );
     }
+    if (applied.settings) settingsCache = null;
     if (applied.settings) await kv(db).replaceOne({ _id: "settings" }, { doc: applied.settings, rev }, { upsert: true });
     if (applied.counters) await kv(db).replaceOne({ _id: "counters" }, { doc: applied.counters, rev }, { upsert: true });
     await kv(db).updateOne({ _id: "meta" }, { $set: { rev, seq } });

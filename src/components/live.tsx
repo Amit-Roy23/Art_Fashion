@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { loginList, setCredential, setup, signIn } from "@/lib/live";
 import { uid } from "@/lib/ops";
 import { run, useStore } from "@/lib/store";
+import { AUTO_LOGOUT_CHOICES, autoLogoutOf, minutesText } from "@/lib/autologout";
 import type { DB, Role, User } from "@/lib/types";
 import { cn } from "@/lib/format";
 import { Wordmark } from "./brand";
@@ -27,6 +28,8 @@ function Centered({ children }: { children: ReactNode }) {
 const message = (e: unknown) => (e instanceof Error ? e.message : "Something went wrong — please try again");
 
 export function LoginScreen() {
+  const notice = useStore((s) => s.notice);
+  const pending = useStore((s) => s.pending);
   const [phone, setPhone] = useState("");
   const [secret, setSecret] = useState("");
   const [busy, setBusy] = useState(false);
@@ -48,6 +51,7 @@ export function LoginScreen() {
         <div className="text-[10px] font-bold uppercase tracking-[.26em] text-gold">Welcome back</div>
         <h1 className="font-display text-3xl font-semibold">Sign in</h1>
         <p className="mt-1 text-sm text-muted">Staff use their password. Karigars use their PIN.</p>
+        {notice && <p className="mt-4 rounded-xl border border-gold/30 bg-gold/10 px-3 py-2 text-sm">{notice}</p>}
         <form onSubmit={submit} className="mt-5 space-y-4">
           <Field label="Mobile number">
             <Input
@@ -63,6 +67,11 @@ export function LoginScreen() {
             <Input type="password" autoComplete="current-password" value={secret} onChange={(e) => setSecret(e.target.value)} required />
           </Field>
           {error && <p className="rounded-xl bg-danger/10 px-3 py-2 text-sm text-danger">{error}</p>}
+          {pending > 0 && (
+            <p className="rounded-xl bg-warn/10 px-3 py-2 text-sm text-warn">
+              {pending} unsaved change{pending === 1 ? " is" : "s are"} kept and will be saved when you sign in again. Don&apos;t close this page.
+            </p>
+          )}
           <button
             type="submit"
             disabled={busy}
@@ -240,8 +249,39 @@ export function UsersPanel({ db, me }: { db: DB; me: User }) {
     </div>
   );
 
+  const auto = autoLogoutOf(db.settings);
+  const setAuto = (patch: Partial<typeof auto>) => run((d) => void (d.settings.autoLogout = { ...autoLogoutOf(d.settings), ...patch }), "Auto sign-out updated");
   return (
     <div className="grid gap-5 lg:grid-cols-2">
+      <Panel className="p-5 lg:col-span-2">
+        <SectionTitle kicker="Security" title="Auto sign-out" />
+        <div className="flex flex-wrap items-end gap-x-6 gap-y-4">
+          <Field label="Sign out after no activity for" className="w-56">
+            <Select value={auto.minutes} onChange={(e) => setAuto({ minutes: +e.target.value })}>
+              {[...new Set([...AUTO_LOGOUT_CHOICES, auto.minutes])].sort((x, y) => x - y).map((m) => (
+                <option key={m} value={m}>
+                  {m ? minutesText(m) : "Never (stay signed in)"}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <label className="flex h-11 cursor-pointer items-center gap-2.5 text-sm">
+            <input
+              type="checkbox"
+              className="size-4 accent-[var(--gold)]"
+              checked={auto.karigars}
+              disabled={!auto.minutes}
+              onChange={(e) => setAuto({ karigars: e.target.checked })}
+            />
+            Also sign out karigars on their phones
+          </label>
+        </div>
+        <p className="mt-3 text-sm text-muted">
+          {auto.minutes
+            ? `Owner, managers and staff${auto.karigars ? " and karigars" : ""} are signed out when nobody has used the software for ${minutesText(auto.minutes)} (a warning shows 1 minute before). Unsaved changes are kept and saved when the same person signs in again.`
+            : "Nobody is signed out automatically. Not recommended on shared or shop-counter computers."}
+        </p>
+      </Panel>
       <Panel className="p-5">
         <SectionTitle
           kicker="Office"
